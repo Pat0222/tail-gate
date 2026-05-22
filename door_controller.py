@@ -6,6 +6,10 @@ import os
 # RFID tag IDs
 AUTHORIZED_TAGS = {613025449752, 372068189196}
 
+# Default home-side assignment — set each to the tag ID of the dog on that reader's side of the fence
+READER1_HOME_TAG = 613025449752
+READER2_HOME_TAG = 372068189196
+
 # GPIO pins (BCM)
 IN1 = 17
 IN2 = 27
@@ -119,7 +123,7 @@ def open_door():
     print("Door open")
 
 
-def close_door(reader1, reader2):
+def close_door(reader1, reader2, home_tag=None):
     global closing, actuator_pos
     closing = True
     set_state(CLOSED)
@@ -129,9 +133,16 @@ def close_door(reader1, reader2):
     start = time.monotonic()
     while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
-        tags = scan_tags(reader1, reader2)
-        if tags:
-            print("Tag detected during close — reversing")
+        per_reader = scan_tags_per_reader(reader1, reader2)
+        if home_tag and home_tag[0] is not None:
+            reverse = (
+                (per_reader[0] is not None and per_reader[0] != home_tag[0]) or
+                (per_reader[1] is not None and per_reader[1] != home_tag[1])
+            )
+        else:
+            reverse = any(t is not None for t in per_reader)
+        if reverse:
+            print("Tag on wrong side during close — reversing")
             stop()
             actuator_pos = min(1.0, actuator_pos + (time.monotonic() - start) / ACTUATOR_TRAVEL_SECS)
             time.sleep(0.2)
@@ -200,20 +211,26 @@ def close_door_manual():
     print("Door closed (manual)")
 
 
-def scan_tags(reader1, reader2):
-    detected = set()
+def scan_tags_per_reader(reader1, reader2):
+    result = []
     for reader in [reader1, reader2]:
+        tag = None
         (status, _) = reader.READER.MFRC522_Request(reader.READER.PICC_REQALL)
         if status == reader.READER.MI_OK:
             (status, uid) = reader.READER.MFRC522_Anticoll()
             if status == reader.READER.MI_OK:
-                tag = 0
+                t = 0
                 for byte in uid:
-                    tag = tag * 256 + byte
-                if tag in AUTHORIZED_TAGS:
-                    detected.add(tag)
+                    t = t * 256 + byte
+                if t in AUTHORIZED_TAGS:
+                    tag = t
         reader.READER.MFRC522_Init()
-    return detected
+        result.append(tag)
+    return result  # [tag_at_reader1|None, tag_at_reader2|None]
+
+
+def scan_tags(reader1, reader2):
+    return {t for t in scan_tags_per_reader(reader1, reader2) if t is not None}
 
 
 def main():
@@ -235,6 +252,10 @@ def main():
     prev_sw_open  = False
     prev_sw_close = False
     last_status = 0
+    home_tag = [None, None]        # tag that belongs on each reader's side, set when door opens via RFID
+    last_seen = [None, None]       # most recent authorized tag detected by each reader
+    home_detected_time = [None, None]  # when each reader last saw its home dog
+    close_deadline = None
 
     try:
         while True:
@@ -245,42 +266,70 @@ def main():
             if sw_open and not prev_sw_open and door_state != OPEN and not closing:
                 print("Manual switch — opening door")
                 open_door_manual()
+                home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
+                last_seen[:] = [None, None]
+                home_detected_time[:] = [None, None]
+                close_deadline = None
             elif sw_close and not prev_sw_close and door_state != CLOSED and not closing:
                 print("Manual switch — closing door")
                 close_door_manual()
+                home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
+                last_seen[:] = [None, None]
+                home_detected_time[:] = [None, None]
+                close_deadline = None
 
             prev_sw_open  = sw_open
             prev_sw_close = sw_close
 
             if not closing:
-                tags = scan_tags(reader1, reader2)
+                per_reader = scan_tags_per_reader(reader1, reader2)
+                tags = {t for t in per_reader if t is not None}
 
                 if is_closed():
-                    if len(tags) == 2:
-                        print("Both tags detected — opening door")
+                    if (per_reader[0] is not None and per_reader[1] is not None
+                            and per_reader[0] != per_reader[1]):
+                        print("Both tags on opposite sides — opening door")
+                        home_tag[:] = per_reader
+                        last_seen[:] = [None, None]
+                        home_detected_time[:] = [None, None]
+                        close_deadline = None
                         open_door()
 
                 elif is_open():
-                    if len(tags) == 1:
-                        print(f"One tag detected — closing in {CLOSE_DELAY_SECS}s")
-                        deadline = time.time() + CLOSE_DELAY_SECS
-                        cancelled = False
-                        while time.time() < deadline:
-                            time.sleep(0.5)
-                            tags = scan_tags(reader1, reader2)
-                            if len(tags) == 2:
-                                print("Second tag returned — cancelling close")
-                                cancelled = True
-                                break
-                        if not cancelled:
-                            close_door(reader1, reader2)
+                    for i, tag in enumerate(per_reader):
+                        if tag is not None:
+                            last_seen[i] = tag
+                            if home_tag[i] is not None and tag == home_tag[i]:
+                                home_detected_time[i] = time.time()
+
+                    cross_detected = home_tag[0] is not None and (
+                        (per_reader[0] is not None and per_reader[0] != home_tag[0]) or
+                        (per_reader[1] is not None and per_reader[1] != home_tag[1])
+                    )
+                    either_home = (home_tag[0] is not None
+                                   and any(t is not None for t in home_detected_time))
+
+                    if either_home and not cross_detected:
+                        if close_deadline is None:
+                            print(f"Dog home detected — closing in {CLOSE_DELAY_SECS}s")
+                            close_deadline = time.time() + CLOSE_DELAY_SECS
+                        elif time.time() >= close_deadline:
+                            close_deadline = None
+                            close_door(reader1, reader2, home_tag)
+                    else:
+                        if close_deadline is not None:
+                            print("Dog activity detected — cancelling close")
+                        close_deadline = None
+                        if cross_detected:
+                            home_detected_time[:] = [None, None]
 
                 now = time.time()
                 if now - last_status >= STATUS_INTERVAL:
-                    tag_str = ', '.join(str(t) for t in tags) if tags else 'none'
+                    r1_str = str(per_reader[0]) if per_reader[0] is not None else 'none'
+                    r2_str = str(per_reader[1]) if per_reader[1] is not None else 'none'
                     sw_str = 'open' if sw_open else ('close' if sw_close else 'neutral')
                     open_pct = round((1.0 - actuator_pos) * 100)
-                    print(f"[status] door={door_state} ({open_pct}%) | tags={tag_str} | switch={sw_str}")
+                    print(f"[status] door={door_state} ({open_pct}%) | r1={r1_str} | r2={r2_str} | switch={sw_str}")
                     last_status = now
 
             time.sleep(0.2)
