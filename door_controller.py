@@ -51,11 +51,12 @@ def init_firebase():
         firebase_admin.initialize_app(cred, {'databaseURL': FIREBASE_URL})
         _firebase_db = db
 
-        def on_owners(event):
-            if isinstance(event.data, dict):
-                with _firebase_lock:
-                    _owner_available[0] = bool(event.data.get('owner1', {}).get('available', True))
-                    _owner_available[1] = bool(event.data.get('owner2', {}).get('available', True))
+        def make_owner_listener(idx):
+            def on_owner(event):
+                if isinstance(event.data, dict):
+                    with _firebase_lock:
+                        _owner_available[idx] = bool(event.data.get('available', True))
+            return on_owner
 
         def on_command(event):
             global _firebase_command, _stop_requested
@@ -71,7 +72,8 @@ def init_firebase():
                     with _firebase_lock:
                         _firebase_command = event.data
 
-        db.reference('owners').listen(on_owners)
+        db.reference('owners/owner1').listen(make_owner_listener(0))
+        db.reference('owners/owner2').listen(make_owner_listener(1))
         db.reference('command').listen(on_command)
         print("Firebase connected")
     except Exception as e:
@@ -364,7 +366,7 @@ def main():
             sw_close = GPIO.input(SW_CLOSE)
 
             # Manual switch takes priority — act only on rising edge
-            if sw_open and not prev_sw_open and door_state != OPEN and not closing and both_owners_available():
+            if sw_open and not prev_sw_open and door_state != OPEN and not closing:
                 print("Manual switch — opening door")
                 open_door_manual()
                 home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
