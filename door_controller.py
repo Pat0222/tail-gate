@@ -126,6 +126,17 @@ def send_push_notification(title, body):
     threading.Thread(target=_send, daemon=True).start()
 
 
+def push_progress(estimated_pos):
+    if _firebase_db is None:
+        return
+    try:
+        _firebase_db.reference('door').update({
+            'open_pct': round((1.0 - estimated_pos) * 100)
+        })
+    except Exception:
+        pass
+
+
 def push_door_state():
     if _firebase_db is None:
         return
@@ -228,8 +239,13 @@ def open_door():
     retract()
     travel_secs = actuator_pos * ACTUATOR_TRAVEL_SECS
     start = time.monotonic()
+    last_push = start
     while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
+        now = time.monotonic()
+        if now - last_push >= 0.5:
+            push_progress(max(0.0, actuator_pos - (now - start) / ACTUATOR_TRAVEL_SECS))
+            last_push = now
         if _stop_requested:
             stop()
             elapsed = time.monotonic() - start
@@ -253,8 +269,13 @@ def close_door(reader1, reader2, home_tag=None):
     extend()
     travel_secs = (1.0 - actuator_pos) * ACTUATOR_TRAVEL_SECS
     start = time.monotonic()
+    last_push = start
     while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
+        now = time.monotonic()
+        if now - last_push >= 0.5:
+            push_progress(min(1.0, actuator_pos + (now - start) / ACTUATOR_TRAVEL_SECS))
+            last_push = now
         if _stop_requested:
             stop()
             elapsed = time.monotonic() - start
@@ -296,8 +317,13 @@ def open_door_manual():
     retract()
     travel_secs = actuator_pos * ACTUATOR_TRAVEL_SECS
     start = time.monotonic()
+    last_push = start
     while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
+        now = time.monotonic()
+        if now - last_push >= 0.5:
+            push_progress(max(0.0, actuator_pos - (now - start) / ACTUATOR_TRAVEL_SECS))
+            last_push = now
         if not GPIO.input(SW_OPEN):
             stop()
             actuator_pos = max(0.0, actuator_pos - (time.monotonic() - start) / ACTUATOR_TRAVEL_SECS)
@@ -326,8 +352,13 @@ def close_door_manual():
     extend()
     travel_secs = (1.0 - actuator_pos) * ACTUATOR_TRAVEL_SECS
     start = time.monotonic()
+    last_push = start
     while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
+        now = time.monotonic()
+        if now - last_push >= 0.5:
+            push_progress(min(1.0, actuator_pos + (now - start) / ACTUATOR_TRAVEL_SECS))
+            last_push = now
         if not GPIO.input(SW_CLOSE):
             stop()
             actuator_pos = min(1.0, actuator_pos + (time.monotonic() - start) / ACTUATOR_TRAVEL_SECS)
