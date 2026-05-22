@@ -2,6 +2,7 @@ import RPi.GPIO as GPIO
 from mfrc522 import MFRC522, SimpleMFRC522
 import time
 import os
+import threading
 
 # RFID tag IDs
 AUTHORIZED_TAGS = {613025449752, 372068189196}
@@ -29,6 +30,83 @@ PARTIALLY_OPEN  = 'partially_open'
 PARTIALLY_CLOSED = 'partially_closed'
 
 VALID_STATES = {OPEN, CLOSED, PARTIALLY_OPEN, PARTIALLY_CLOSED}
+
+# Firebase
+FIREBASE_KEY = '/home/pat0222/dog-door/firebase-key.json'
+FIREBASE_URL = 'https://dog-door-632e6-default-rtdb.firebaseio.com/'
+
+_firebase_lock = threading.Lock()
+_owner_available = [True, True]  # default True so door works if Firebase is unreachable
+_firebase_command = None
+_stop_requested = False
+_firebase_db = None
+
+
+def init_firebase():
+    global _firebase_db
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, db
+        cred = credentials.Certificate(FIREBASE_KEY)
+        firebase_admin.initialize_app(cred, {'databaseURL': FIREBASE_URL})
+        _firebase_db = db
+
+        def on_owners(event):
+            if isinstance(event.data, dict):
+                with _firebase_lock:
+                    _owner_available[0] = bool(event.data.get('owner1', {}).get('available', True))
+                    _owner_available[1] = bool(event.data.get('owner2', {}).get('available', True))
+
+        def on_command(event):
+            global _firebase_command, _stop_requested
+            if event.data:
+                if event.data == 'stop':
+                    with _firebase_lock:
+                        _stop_requested = True
+                    try:
+                        db.reference('command').set(None)
+                    except Exception:
+                        pass
+                else:
+                    with _firebase_lock:
+                        _firebase_command = event.data
+
+        db.reference('owners').listen(on_owners)
+        db.reference('command').listen(on_command)
+        print("Firebase connected")
+    except Exception as e:
+        print(f"Firebase unavailable: {e} — operating locally")
+
+
+def both_owners_available():
+    with _firebase_lock:
+        return _owner_available[0] and _owner_available[1]
+
+
+def poll_firebase_command():
+    global _firebase_command
+    with _firebase_lock:
+        cmd = _firebase_command
+        _firebase_command = None
+    if cmd and _firebase_db:
+        try:
+            _firebase_db.reference('command').set(None)
+        except Exception:
+            pass
+    return cmd
+
+
+def push_door_state():
+    if _firebase_db is None:
+        return
+    try:
+        _firebase_db.reference('door').set({
+            'state': door_state,
+            'open_pct': round((1.0 - actuator_pos) * 100)
+        })
+    except Exception:
+        pass
+
 
 # State
 STATE_FILE = '/home/pat0222/dog-door/.door_state'
@@ -71,6 +149,7 @@ def set_state(state):
     global door_state
     door_state = state
     save_door_state(state)
+    push_door_state()
 
 
 def is_open():
@@ -114,9 +193,20 @@ def stop():
 
 
 def open_door():
-    global actuator_pos
+    global actuator_pos, _stop_requested
     retract()
-    time.sleep(actuator_pos * ACTUATOR_TRAVEL_SECS)
+    travel_secs = actuator_pos * ACTUATOR_TRAVEL_SECS
+    start = time.monotonic()
+    while time.monotonic() - start < travel_secs:
+        time.sleep(0.1)
+        if _stop_requested:
+            stop()
+            elapsed = time.monotonic() - start
+            actuator_pos = max(0.0, actuator_pos - elapsed / ACTUATOR_TRAVEL_SECS)
+            set_state(OPEN if actuator_pos <= 0.0 else PARTIALLY_OPEN)
+            _stop_requested = False
+            print("Door open interrupted")
+            return
     stop()
     actuator_pos = 0.0
     set_state(OPEN)
@@ -124,15 +214,24 @@ def open_door():
 
 
 def close_door(reader1, reader2, home_tag=None):
-    global closing, actuator_pos
+    global closing, actuator_pos, _stop_requested
     closing = True
-    set_state(CLOSED)
+    set_state(PARTIALLY_CLOSED)
     print("Closing in progress...")
     extend()
     travel_secs = (1.0 - actuator_pos) * ACTUATOR_TRAVEL_SECS
     start = time.monotonic()
     while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
+        if _stop_requested:
+            stop()
+            elapsed = time.monotonic() - start
+            actuator_pos = min(1.0, actuator_pos + elapsed / ACTUATOR_TRAVEL_SECS)
+            set_state(CLOSED if actuator_pos >= 1.0 else PARTIALLY_CLOSED)
+            closing = False
+            _stop_requested = False
+            print("Door close interrupted")
+            return
         per_reader = scan_tags_per_reader(reader1, reader2)
         if home_tag and home_tag[0] is not None:
             reverse = (
@@ -152,6 +251,7 @@ def close_door(reader1, reader2, home_tag=None):
     stop()
     actuator_pos = 1.0
     closing = False
+    set_state(CLOSED)
     print("Door closed")
 
 
@@ -237,6 +337,7 @@ def main():
     global closing
 
     setup_gpio()
+    init_firebase()
 
     rfid1 = MFRC522(bus=0, device=0, pin_rst=25)
     rfid2 = MFRC522(bus=0, device=1, pin_rst=24)
@@ -263,7 +364,7 @@ def main():
             sw_close = GPIO.input(SW_CLOSE)
 
             # Manual switch takes priority — act only on rising edge
-            if sw_open and not prev_sw_open and door_state != OPEN and not closing:
+            if sw_open and not prev_sw_open and door_state != OPEN and not closing and both_owners_available():
                 print("Manual switch — opening door")
                 open_door_manual()
                 home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
@@ -282,12 +383,30 @@ def main():
             prev_sw_close = sw_close
 
             if not closing:
+                # Handle app commands
+                cmd = poll_firebase_command()
+                if cmd == 'open' and door_state != OPEN and both_owners_available():
+                    print("App command — opening door")
+                    open_door()
+                    home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
+                    last_seen[:] = [None, None]
+                    home_detected_time[:] = [None, None]
+                    close_deadline = None
+                elif cmd == 'close' and door_state != CLOSED:
+                    print("App command — closing door")
+                    close_door(reader1, reader2)
+                    home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
+                    last_seen[:] = [None, None]
+                    home_detected_time[:] = [None, None]
+                    close_deadline = None
+
                 per_reader = scan_tags_per_reader(reader1, reader2)
                 tags = {t for t in per_reader if t is not None}
 
                 if is_closed():
                     if (per_reader[0] is not None and per_reader[1] is not None
-                            and per_reader[0] != per_reader[1]):
+                            and per_reader[0] != per_reader[1]
+                            and both_owners_available()):
                         print("Both tags on opposite sides — opening door")
                         home_tag[:] = per_reader
                         last_seen[:] = [None, None]
@@ -329,7 +448,8 @@ def main():
                     r2_str = str(per_reader[1]) if per_reader[1] is not None else 'none'
                     sw_str = 'open' if sw_open else ('close' if sw_close else 'neutral')
                     open_pct = round((1.0 - actuator_pos) * 100)
-                    print(f"[status] door={door_state} ({open_pct}%) | r1={r1_str} | r2={r2_str} | switch={sw_str}")
+                    avail_str = 'both' if both_owners_available() else ('owner1' if _owner_available[0] else ('owner2' if _owner_available[1] else 'none'))
+                    print(f"[status] door={door_state} ({open_pct}%) | r1={r1_str} | r2={r2_str} | switch={sw_str} | owners={avail_str}")
                     last_status = now
 
             time.sleep(0.2)
