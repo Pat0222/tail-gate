@@ -1,6 +1,7 @@
 import RPi.GPIO as GPIO
 from mfrc522 import MFRC522, SimpleMFRC522
 import time
+import os
 
 # RFID tag IDs
 AUTHORIZED_TAGS = {613025449752, 372068189196}
@@ -9,17 +10,74 @@ AUTHORIZED_TAGS = {613025449752, 372068189196}
 IN1 = 17
 IN2 = 27
 ENA = 22
-SW_EXTEND = 5   # GPIO5 (Pin 29) — manual switch +VE(Load)
-SW_RETRACT = 6  # GPIO6 (Pin 31) — manual switch -VE(Load)
+SW_OPEN  = 5    # GPIO5 (Pin 29) — manual switch +VE(Load) — retracts actuator, opens door
+SW_CLOSE = 6    # GPIO6 (Pin 31) — manual switch -VE(Load) — extends actuator, closes door
 
 # Timing
 CLOSE_DELAY_SECS = 10
-ACTUATOR_TRAVEL_SECS = 8
+ACTUATOR_TRAVEL_SECS = 7.84
 STATUS_INTERVAL = 2
 
+# Door states
+OPEN            = 'open'
+CLOSED          = 'closed'
+PARTIALLY_OPEN  = 'partially_open'
+PARTIALLY_CLOSED = 'partially_closed'
+
+VALID_STATES = {OPEN, CLOSED, PARTIALLY_OPEN, PARTIALLY_CLOSED}
+
 # State
-door_open = False
+STATE_FILE = '/home/pat0222/dog-door/.door_state'
 closing = False
+actuator_pos = 1.0  # 0.0 = fully retracted (open), 1.0 = fully extended (closed)
+
+
+def load_door_state():
+    global actuator_pos
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f:
+            parts = f.read().strip().split()
+        state = parts[0] if parts else None
+        if state in VALID_STATES:
+            if state == OPEN:
+                actuator_pos = 0.0
+            elif state == CLOSED:
+                actuator_pos = 1.0
+            elif len(parts) == 2:
+                try:
+                    actuator_pos = float(parts[1])
+                except ValueError:
+                    actuator_pos = 0.5
+            else:
+                actuator_pos = 0.5
+            return state
+    actuator_pos = 1.0
+    return CLOSED
+
+
+def save_door_state(state):
+    with open(STATE_FILE, 'w') as f:
+        if state in (PARTIALLY_OPEN, PARTIALLY_CLOSED):
+            f.write(f"{state} {actuator_pos:.3f}")
+        else:
+            f.write(state)
+
+
+def set_state(state):
+    global door_state
+    door_state = state
+    save_door_state(state)
+
+
+def is_open():
+    return door_state in (OPEN, PARTIALLY_OPEN)
+
+
+def is_closed():
+    return door_state in (CLOSED, PARTIALLY_CLOSED)
+
+
+door_state = load_door_state()
 
 
 def setup_gpio():
@@ -28,22 +86,22 @@ def setup_gpio():
     GPIO.setup(IN1, GPIO.OUT)
     GPIO.setup(IN2, GPIO.OUT)
     GPIO.setup(ENA, GPIO.OUT)
-    GPIO.setup(SW_EXTEND, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-    GPIO.setup(SW_RETRACT, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    GPIO.setup(SW_OPEN,  GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    GPIO.setup(SW_CLOSE, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
     stop()
 
 
 def extend():
-    print("Opening door...")
-    GPIO.output(IN1, GPIO.LOW)
-    GPIO.output(IN2, GPIO.HIGH)
+    print("Extending actuator...")
+    GPIO.output(IN1, GPIO.HIGH)
+    GPIO.output(IN2, GPIO.LOW)
     GPIO.output(ENA, GPIO.HIGH)
 
 
 def retract():
-    print("Closing door...")
-    GPIO.output(IN1, GPIO.HIGH)
-    GPIO.output(IN2, GPIO.LOW)
+    print("Retracting actuator...")
+    GPIO.output(IN1, GPIO.LOW)
+    GPIO.output(IN2, GPIO.HIGH)
     GPIO.output(ENA, GPIO.HIGH)
 
 
@@ -52,79 +110,92 @@ def stop():
 
 
 def open_door():
-    global door_open
+    global actuator_pos
     retract()
-    time.sleep(ACTUATOR_TRAVEL_SECS)
+    time.sleep(actuator_pos * ACTUATOR_TRAVEL_SECS)
     stop()
-    door_open = True
+    actuator_pos = 0.0
+    set_state(OPEN)
     print("Door open")
 
 
 def close_door(reader1, reader2):
-    global door_open, closing
+    global closing, actuator_pos
     closing = True
-    door_open = False
+    set_state(CLOSED)
     print("Closing in progress...")
     extend()
-    for _ in range(ACTUATOR_TRAVEL_SECS * 10):
+    travel_secs = (1.0 - actuator_pos) * ACTUATOR_TRAVEL_SECS
+    start = time.monotonic()
+    while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
         tags = scan_tags(reader1, reader2)
         if tags:
             print("Tag detected during close — reversing")
             stop()
+            actuator_pos = min(1.0, actuator_pos + (time.monotonic() - start) / ACTUATOR_TRAVEL_SECS)
             time.sleep(0.2)
             open_door()
             closing = False
             return
     stop()
+    actuator_pos = 1.0
     closing = False
     print("Door closed")
 
 
 def open_door_manual():
-    global door_open, closing
+    global closing, actuator_pos
     closing = True
     print("Manual open in progress...")
     retract()
-    for _ in range(ACTUATOR_TRAVEL_SECS * 10):
+    travel_secs = actuator_pos * ACTUATOR_TRAVEL_SECS
+    start = time.monotonic()
+    while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
-        if not GPIO.input(SW_EXTEND):
+        if not GPIO.input(SW_OPEN):
             stop()
-            if GPIO.input(SW_RETRACT):
+            actuator_pos = max(0.0, actuator_pos - (time.monotonic() - start) / ACTUATOR_TRAVEL_SECS)
+            if GPIO.input(SW_CLOSE):
                 print("Manual switch reversed — closing")
                 time.sleep(0.1)
                 close_door_manual()
             else:
                 print("Manual open stopped")
-                door_open = False
+                set_state(PARTIALLY_OPEN)
                 closing = False
             return
     stop()
-    door_open = True
+    actuator_pos = 0.0
+    set_state(OPEN)
     closing = False
     print("Door open (manual)")
 
 
 def close_door_manual():
-    global door_open, closing
+    global closing, actuator_pos
     closing = True
     print("Manual close in progress...")
     extend()
-    for _ in range(ACTUATOR_TRAVEL_SECS * 10):
+    travel_secs = (1.0 - actuator_pos) * ACTUATOR_TRAVEL_SECS
+    start = time.monotonic()
+    while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
-        if not GPIO.input(SW_RETRACT):
+        if not GPIO.input(SW_CLOSE):
             stop()
-            if GPIO.input(SW_EXTEND):
+            actuator_pos = min(1.0, actuator_pos + (time.monotonic() - start) / ACTUATOR_TRAVEL_SECS)
+            if GPIO.input(SW_OPEN):
                 print("Manual switch reversed — opening")
                 time.sleep(0.1)
                 open_door_manual()
             else:
                 print("Manual close stopped")
-                door_open = True
+                set_state(PARTIALLY_CLOSED)
                 closing = False
             return
     stop()
-    door_open = False
+    actuator_pos = 1.0
+    set_state(CLOSED)
     closing = False
     print("Door closed (manual)")
 
@@ -146,7 +217,7 @@ def scan_tags(reader1, reader2):
 
 
 def main():
-    global door_open, closing
+    global closing
 
     setup_gpio()
 
@@ -159,37 +230,37 @@ def main():
     reader2 = SimpleMFRC522()
     reader2.READER = rfid2
 
-    print("Dog door ready — polling...")
+    print(f"Dog door ready — state: {door_state}")
 
-    prev_sw_extend = False
-    prev_sw_retract = False
+    prev_sw_open  = False
+    prev_sw_close = False
     last_status = 0
 
     try:
         while True:
-            sw_extend = GPIO.input(SW_EXTEND)
-            sw_retract = GPIO.input(SW_RETRACT)
+            sw_open  = GPIO.input(SW_OPEN)
+            sw_close = GPIO.input(SW_CLOSE)
 
             # Manual switch takes priority — act only on rising edge
-            if sw_extend and not prev_sw_extend and not door_open and not closing:
+            if sw_open and not prev_sw_open and door_state != OPEN and not closing:
                 print("Manual switch — opening door")
                 open_door_manual()
-            elif sw_retract and not prev_sw_retract and door_open and not closing:
+            elif sw_close and not prev_sw_close and door_state != CLOSED and not closing:
                 print("Manual switch — closing door")
                 close_door_manual()
 
-            prev_sw_extend = sw_extend
-            prev_sw_retract = sw_retract
+            prev_sw_open  = sw_open
+            prev_sw_close = sw_close
 
             if not closing:
                 tags = scan_tags(reader1, reader2)
 
-                if not door_open:
+                if is_closed():
                     if len(tags) == 2:
                         print("Both tags detected — opening door")
                         open_door()
 
-                elif door_open:
+                elif is_open():
                     if len(tags) == 1:
                         print(f"One tag detected — closing in {CLOSE_DELAY_SECS}s")
                         deadline = time.time() + CLOSE_DELAY_SECS
@@ -207,8 +278,9 @@ def main():
                 now = time.time()
                 if now - last_status >= STATUS_INTERVAL:
                     tag_str = ', '.join(str(t) for t in tags) if tags else 'none'
-                    sw_str = 'extend' if sw_extend else ('retract' if sw_retract else 'neutral')
-                    print(f"[status] door={'open' if door_open else 'closed'} | tags={tag_str} | switch={sw_str}")
+                    sw_str = 'open' if sw_open else ('close' if sw_close else 'neutral')
+                    open_pct = round((1.0 - actuator_pos) * 100)
+                    print(f"[status] door={door_state} ({open_pct}%) | tags={tag_str} | switch={sw_str}")
                     last_status = now
 
             time.sleep(0.2)

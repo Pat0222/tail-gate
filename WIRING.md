@@ -24,8 +24,8 @@
 | GPIO19 | Pin 35 | MAX98357A — LRC |
 | GPIO21 | Pin 40 | MAX98357A — DIN |
 | GPIO22 | Pin 15 | L298N — ENA |
-| GPIO5  | Pin 29 | Manual switch — extend (+VE Load) |
-| GPIO6  | Pin 31 | Manual switch — retract (-VE Load) |
+| GPIO5  | Pin 29 | Manual switch — open (+VE Load) |
+| GPIO6  | Pin 31 | Manual switch — close (-VE Load) |
 | GPIO23 | Pin 16 | Override pushbutton |
 | GPIO24 | Pin 18 | RFID reader 2 — RST |
 | GPIO25 | Pin 22 | RFID reader 1 — RST |
@@ -103,12 +103,12 @@ Repurposed as a 3.3V signal switch — do NOT connect to 12V.
 |---|---|
 | +VE | Pi 3.3V (Pin 1) |
 | -VE | Pi GND (Pin 6) |
-| +VE(Load) | Pi GPIO5 (Pin 29) — extend signal |
-| -VE(Load) | Pi GPIO6 (Pin 31) — retract signal |
+| +VE(Load) | Pi GPIO5 (Pin 29) — open signal |
+| -VE(Load) | Pi GPIO6 (Pin 31) — close signal |
 
 - Center position: both GPIO5 and GPIO6 LOW — no action
-- Extend position: GPIO5 HIGH → door opens (if closed)
-- Retract position: GPIO6 HIGH → door closes (if open)
+- Open position: GPIO5 HIGH → door opens (if closed)
+- Close position: GPIO6 HIGH → door closes (if open)
 - Pull-down resistors configured in software — no external resistors needed
 
 ### Override Pushbutton
