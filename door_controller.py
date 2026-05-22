@@ -5,6 +5,7 @@ import os
 import threading
 import json
 import urllib.request
+import signal
 
 # RFID tag IDs
 AUTHORIZED_TAGS = {613025449752, 372068189196}
@@ -393,6 +394,8 @@ def main():
     last_seen = [None, None]       # most recent authorized tag detected by each reader
     home_detected_time = [None, None]  # when each reader last saw its home dog
     close_deadline = None
+
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
 
     try:
         while True:

@@ -1,0 +1,15 @@
+[Unit]
+Description=Puppy Play Time — Dog Door Controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pat0222
+WorkingDirectory=/home/pat0222/dog-door
+ExecStart=/home/pat0222/dog-door/venv/bin/python door_controller.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
