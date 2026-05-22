@@ -3,6 +3,8 @@ from mfrc522 import MFRC522, SimpleMFRC522
 import time
 import os
 import threading
+import json
+import urllib.request
 
 # RFID tag IDs
 AUTHORIZED_TAGS = {613025449752, 372068189196}
@@ -96,6 +98,31 @@ def poll_firebase_command():
         except Exception:
             pass
     return cmd
+
+
+def send_push_notification(title, body):
+    def _send():
+        if _firebase_db is None:
+            return
+        try:
+            tokens = _firebase_db.reference('push_tokens').get()
+            if not tokens:
+                return
+            token_list = list(tokens.values()) if isinstance(tokens, dict) else list(tokens)
+            payload = [{'to': t, 'title': title, 'body': body, 'sound': 'default'}
+                       for t in token_list if t]
+            if not payload:
+                return
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(
+                'https://exp.host/--/api/v2/push/send',
+                data=data,
+                headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+            )
+            urllib.request.urlopen(req, timeout=5)
+        except Exception as e:
+            print(f"Push notification error: {e}")
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def push_door_state():
@@ -196,6 +223,7 @@ def stop():
 
 def open_door():
     global actuator_pos, _stop_requested
+    set_state(PARTIALLY_OPEN)
     retract()
     travel_secs = actuator_pos * ACTUATOR_TRAVEL_SECS
     start = time.monotonic()
@@ -208,11 +236,12 @@ def open_door():
             set_state(OPEN if actuator_pos <= 0.0 else PARTIALLY_OPEN)
             _stop_requested = False
             print("Door open interrupted")
-            return
+            return False
     stop()
     actuator_pos = 0.0
     set_state(OPEN)
     print("Door open")
+    return True
 
 
 def close_door(reader1, reader2, home_tag=None):
@@ -233,7 +262,7 @@ def close_door(reader1, reader2, home_tag=None):
             closing = False
             _stop_requested = False
             print("Door close interrupted")
-            return
+            return False
         per_reader = scan_tags_per_reader(reader1, reader2)
         if home_tag and home_tag[0] is not None:
             reverse = (
@@ -249,17 +278,19 @@ def close_door(reader1, reader2, home_tag=None):
             time.sleep(0.2)
             open_door()
             closing = False
-            return
+            return False
     stop()
     actuator_pos = 1.0
     closing = False
     set_state(CLOSED)
     print("Door closed")
+    return True
 
 
 def open_door_manual():
     global closing, actuator_pos
     closing = True
+    set_state(PARTIALLY_OPEN)
     print("Manual open in progress...")
     retract()
     travel_secs = actuator_pos * ACTUATOR_TRAVEL_SECS
@@ -277,17 +308,19 @@ def open_door_manual():
                 print("Manual open stopped")
                 set_state(PARTIALLY_OPEN)
                 closing = False
-            return
+            return False
     stop()
     actuator_pos = 0.0
     set_state(OPEN)
     closing = False
     print("Door open (manual)")
+    return True
 
 
 def close_door_manual():
     global closing, actuator_pos
     closing = True
+    set_state(PARTIALLY_CLOSED)
     print("Manual close in progress...")
     extend()
     travel_secs = (1.0 - actuator_pos) * ACTUATOR_TRAVEL_SECS
@@ -305,12 +338,13 @@ def close_door_manual():
                 print("Manual close stopped")
                 set_state(PARTIALLY_CLOSED)
                 closing = False
-            return
+            return False
     stop()
     actuator_pos = 1.0
     set_state(CLOSED)
     closing = False
     print("Door closed (manual)")
+    return True
 
 
 def scan_tags_per_reader(reader1, reader2):
@@ -368,14 +402,16 @@ def main():
             # Manual switch takes priority — act only on rising edge
             if sw_open and not prev_sw_open and door_state != OPEN and not closing:
                 print("Manual switch — opening door")
-                open_door_manual()
+                if open_door_manual():
+                    send_push_notification("Puppy Play Time", "Door opened manually.")
                 home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
                 last_seen[:] = [None, None]
                 home_detected_time[:] = [None, None]
                 close_deadline = None
             elif sw_close and not prev_sw_close and door_state != CLOSED and not closing:
                 print("Manual switch — closing door")
-                close_door_manual()
+                if close_door_manual():
+                    send_push_notification("Puppy Play Time", "Door closed manually.")
                 home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
                 last_seen[:] = [None, None]
                 home_detected_time[:] = [None, None]
@@ -389,14 +425,16 @@ def main():
                 cmd = poll_firebase_command()
                 if cmd == 'open' and door_state != OPEN and both_owners_available():
                     print("App command — opening door")
-                    open_door()
+                    if open_door():
+                        send_push_notification("Puppy Play Time", "Door opened via app.")
                     home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
                     last_seen[:] = [None, None]
                     home_detected_time[:] = [None, None]
                     close_deadline = None
                 elif cmd == 'close' and door_state != CLOSED:
                     print("App command — closing door")
-                    close_door(reader1, reader2)
+                    if close_door(reader1, reader2):
+                        send_push_notification("Puppy Play Time", "Door closed via app.")
                     home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
                     last_seen[:] = [None, None]
                     home_detected_time[:] = [None, None]
@@ -414,7 +452,8 @@ def main():
                         last_seen[:] = [None, None]
                         home_detected_time[:] = [None, None]
                         close_deadline = None
-                        open_door()
+                        if open_door():
+                            send_push_notification("Puppy Play Time", "Door opened — the dogs are playing.")
 
                 elif is_open():
                     for i, tag in enumerate(per_reader):
@@ -436,7 +475,8 @@ def main():
                             close_deadline = time.time() + CLOSE_DELAY_SECS
                         elif time.time() >= close_deadline:
                             close_deadline = None
-                            close_door(reader1, reader2, home_tag)
+                            if close_door(reader1, reader2, home_tag):
+                                send_push_notification("Puppy Play Time", "Dogs are home. Door closed.")
                     else:
                         if close_deadline is not None:
                             print("Dog activity detected — cancelling close")

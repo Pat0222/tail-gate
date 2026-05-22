@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, Switch, TouchableOpacity, SafeAreaView } from 'react-native';
+import { StyleSheet, Text, View, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Platform } from 'react-native';
 import { ref, onValue, set } from 'firebase/database';
 import { db } from './firebase';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
 const DOOR_COLORS = {
   open:             '#34C759',
@@ -9,6 +11,36 @@ const DOOR_COLORS = {
   partially_open:   '#FF9500',
   partially_closed: '#FF9500',
 };
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+async function registerForPushNotifications() {
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'default',
+      importance: Notifications.AndroidImportance.MAX,
+    });
+  }
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
+  if (existingStatus !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+  if (finalStatus !== 'granted') return null;
+
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+  if (!projectId) return null;
+
+  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  return token;
+}
 
 export default function App() {
   const [doorState, setDoorState] = useState('unknown');
@@ -33,6 +65,13 @@ export default function App() {
       }
     });
 
+    registerForPushNotifications().then(token => {
+      if (token) {
+        const key = token.replace(/[[\]]/g, '');
+        set(ref(db, `push_tokens/${key}`), token);
+      }
+    });
+
     return () => { unsubDoor(); unsubOwners(); };
   }, []);
 
@@ -44,20 +83,26 @@ export default function App() {
     set(ref(db, 'command'), cmd);
   };
 
+  const isMoving    = doorState === 'partially_open' || doorState === 'partially_closed';
   const statusColor = DOOR_COLORS[doorState] ?? '#8E8E93';
-  const statusLabel = doorState.replace(/_/g, ' ');
+  const statusLabel = isMoving
+    ? (doorState === 'partially_open' ? 'Opening...' : 'Closing...')
+    : doorState.replace(/_/g, ' ');
   const bothAvailable = owner1 && owner2;
 
   return (
     <SafeAreaView style={styles.container}>
 
-      <Text style={styles.title}>Dog Door</Text>
+      <Text style={styles.title}>Puppy Play Time</Text>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Door Status</Text>
         <View style={styles.statusRow}>
-          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-          <Text style={styles.statusText}>{statusLabel}</Text>
+          {isMoving
+            ? <ActivityIndicator size="small" color={statusColor} />
+            : <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+          }
+          <Text style={[styles.statusText, isMoving && { color: statusColor }]}>{statusLabel}</Text>
           <Text style={styles.pctText}>{openPct}% open</Text>
         </View>
       </View>

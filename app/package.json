@@ -4,6 +4,8 @@
   "main": "index.js",
   "dependencies": {
     "expo": "~54.0.0",
+    "expo-constants": "~18.0.13",
+    "expo-notifications": "~0.32.17",
     "expo-status-bar": "~3.0.9",
     "firebase": "^12.13.0",
     "react": "19.1.0",
