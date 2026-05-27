@@ -21,10 +21,16 @@ ENA = 22
 SW_OPEN  = 5    # GPIO5 (Pin 29) — manual switch +VE(Load) — retracts actuator, opens door
 SW_CLOSE = 6    # GPIO6 (Pin 31) — manual switch -VE(Load) — extends actuator, closes door
 
+# LED pins (BCM) — driven via 2N2222 NPN transistors from 12V
+LED_OPEN      = 12  # GPIO12 (Pin 32) — green
+LED_CLOSED    = 13  # GPIO13 (Pin 33) — red
+LED_COUNTDOWN = 16  # GPIO16 (Pin 36) — amber
+
 # Timing
 CLOSE_DELAY_SECS = 10
 ACTUATOR_TRAVEL_SECS = 7.84
 STATUS_INTERVAL = 2
+STUCK_ALERT_SECS = 30    # seconds in a partial state before flashing LEDs (set to 900 for production)
 
 # Door states
 OPEN            = 'open'
@@ -212,6 +218,9 @@ def setup_gpio():
     GPIO.setup(ENA, GPIO.OUT)
     GPIO.setup(SW_OPEN,  GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
     GPIO.setup(SW_CLOSE, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    GPIO.setup(LED_OPEN,      GPIO.OUT, initial=GPIO.LOW)
+    GPIO.setup(LED_CLOSED,    GPIO.OUT, initial=GPIO.LOW)
+    GPIO.setup(LED_COUNTDOWN, GPIO.OUT, initial=GPIO.LOW)
     stop()
 
 
@@ -231,6 +240,20 @@ def retract():
 
 def stop():
     GPIO.output(ENA, GPIO.LOW)
+
+
+def update_leds(countdown_active, stuck_alert):
+    if stuck_alert:
+        # All three flash together — blink on even half-seconds
+        on = int(time.monotonic() * 2) % 2 == 0
+        state = GPIO.HIGH if on else GPIO.LOW
+        GPIO.output(LED_OPEN,      state)
+        GPIO.output(LED_CLOSED,    state)
+        GPIO.output(LED_COUNTDOWN, state)
+    else:
+        GPIO.output(LED_OPEN,      GPIO.HIGH if is_open()   else GPIO.LOW)
+        GPIO.output(LED_CLOSED,    GPIO.HIGH if is_closed() else GPIO.LOW)
+        GPIO.output(LED_COUNTDOWN, GPIO.HIGH if countdown_active else GPIO.LOW)
 
 
 def open_door():
@@ -425,6 +448,7 @@ def main():
     last_seen = [None, None]       # most recent authorized tag detected by each reader
     home_detected_time = [None, None]  # when each reader last saw its home dog
     close_deadline = None
+    partial_since = time.monotonic() if door_state in (PARTIALLY_OPEN, PARTIALLY_CLOSED) else None
 
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
 
@@ -518,6 +542,16 @@ def main():
                         if cross_detected:
                             home_detected_time[:] = [None, None]
 
+                # Track how long door has been in a partial state
+                if door_state in (PARTIALLY_OPEN, PARTIALLY_CLOSED):
+                    if partial_since is None:
+                        partial_since = time.monotonic()
+                else:
+                    partial_since = None
+                stuck_alert = (partial_since is not None
+                               and time.monotonic() - partial_since >= STUCK_ALERT_SECS)
+                update_leds(close_deadline is not None, stuck_alert)
+
                 now = time.time()
                 if now - last_status >= STATUS_INTERVAL:
                     r1_str = str(per_reader[0]) if per_reader[0] is not None else 'none'
@@ -534,6 +568,9 @@ def main():
         print("Shutting down")
     finally:
         stop()
+        GPIO.output(LED_OPEN,      GPIO.LOW)
+        GPIO.output(LED_CLOSED,    GPIO.LOW)
+        GPIO.output(LED_COUNTDOWN, GPIO.LOW)
         try:
             rfid1.spi.close()
             rfid2.spi.close()

@@ -26,6 +26,9 @@
 | GPIO22 | Pin 15 | L298N — ENA |
 | GPIO5  | Pin 29 | Manual switch — open (+VE Load) |
 | GPIO6  | Pin 31 | Manual switch — close (-VE Load) |
+| GPIO12 | Pin 32 | LED green (open) — via 2N2222 transistor |
+| GPIO13 | Pin 33 | LED red (closed) — via 2N2222 transistor |
+| GPIO16 | Pin 36 | LED amber (countdown) — via 2N2222 transistor |
 | GPIO23 | Pin 16 | Override pushbutton |
 | GPIO24 | Pin 18 | RFID reader 2 — RST |
 | GPIO25 | Pin 22 | RFID reader 1 — RST |
@@ -110,6 +113,25 @@ Repurposed as a 3.3V signal switch — do NOT connect to 12V.
 - Open position: GPIO5 HIGH → door opens (if closed)
 - Close position: GPIO6 HIGH → door closes (if open)
 - Pull-down resistors configured in software — no external resistors needed
+
+### LED Status Lights (via 2N2222 NPN Transistors)
+Each LED uses the same circuit — repeat for green (GPIO12), red (GPIO13), amber (GPIO16):
+
+```
+Pi GPIO ──→ 1kΩ resistor ──→ 2N2222 Base (pin 2)
+                              2N2222 Collector (pin 3) ──→ LED negative (cathode)
+                              2N2222 Emitter (pin 1)  ──→ GND
+12V ──────────────────────────────────────────────────→ LED positive (anode)
+```
+
+| GPIO | LED Color | Meaning |
+|---|---|---|
+| GPIO12 (Pin 32) | Green | Door is open or partially open |
+| GPIO13 (Pin 33) | Red | Door is closed or partially closed |
+| GPIO16 (Pin 36) | Amber | Close countdown in progress |
+
+⚠️ The LEDs are 12-24V rated — do NOT connect directly to Pi GPIO (3.3V). The transistor switches the 12V side; the Pi only drives the base through the 1kΩ resistor.
+⚠️ 2N2222 pin order (TO-92 package, flat side facing you): Emitter | Base | Collector (left to right).
 
 ### Override Pushbutton
 | Connection | Connects To |
