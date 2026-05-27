@@ -298,6 +298,7 @@ def open_door():
     while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
         now = time.monotonic()
+        update_leds(False, False)
         if now - last_push >= 0.5:
             push_progress(max(0.0, actuator_pos - (now - start) / ACTUATOR_TRAVEL_SECS))
             last_push = now
@@ -328,6 +329,7 @@ def close_door(reader1, reader2, home_tag=None):
     while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
         now = time.monotonic()
+        update_leds(False, False)
         if now - last_push >= 0.5:
             push_progress(min(1.0, actuator_pos + (now - start) / ACTUATOR_TRAVEL_SECS))
             last_push = now
@@ -376,6 +378,7 @@ def open_door_manual():
     while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
         now = time.monotonic()
+        update_leds(False, False)
         if now - last_push >= 0.5:
             push_progress(max(0.0, actuator_pos - (now - start) / ACTUATOR_TRAVEL_SECS))
             last_push = now
@@ -411,6 +414,7 @@ def close_door_manual():
     while time.monotonic() - start < travel_secs:
         time.sleep(0.1)
         now = time.monotonic()
+        update_leds(False, False)
         if now - last_push >= 0.5:
             push_progress(min(1.0, actuator_pos + (now - start) / ACTUATOR_TRAVEL_SECS))
             last_push = now
