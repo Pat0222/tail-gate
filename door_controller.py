@@ -52,10 +52,11 @@ _firebase_command = None
 _stop_requested = False
 _firebase_db = None
 _firebase_connected = False
+_startup_time = time.monotonic()
 
 
 def init_firebase():
-    global _firebase_db
+    global _firebase_db, _firebase_connected
     try:
         import firebase_admin
         from firebase_admin import credentials, db
@@ -255,7 +256,8 @@ def stop():
 _LED_SEQUENCE = [LED_OPEN, LED_COUNTDOWN, LED_CLOSED, LED_OWNER1, LED_OWNER2]
 
 def update_leds(countdown_active, stuck_alert):
-    if not _firebase_connected:
+    in_grace = time.monotonic() - _startup_time < 5
+    if not _firebase_connected and not in_grace:
         # Chase pattern: one LED at a time cycling green→amber→red→blue→white
         slot = int(time.monotonic() / 0.3) % len(_LED_SEQUENCE)
         for i, pin in enumerate(_LED_SEQUENCE):
