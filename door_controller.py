@@ -25,6 +25,8 @@ SW_CLOSE = 6    # GPIO6 (Pin 31) — manual switch -VE(Load) — extends actuato
 LED_OPEN      = 12  # GPIO12 (Pin 32) — green
 LED_CLOSED    = 13  # GPIO13 (Pin 33) — red
 LED_COUNTDOWN = 16  # GPIO16 (Pin 36) — amber
+LED_OWNER1    = 20  # GPIO20 (Pin 38) — blue
+LED_OWNER2    = 26  # GPIO26 (Pin 37) — white
 
 # Timing
 CLOSE_DELAY_SECS = 10
@@ -221,6 +223,8 @@ def setup_gpio():
     GPIO.setup(LED_OPEN,      GPIO.OUT, initial=GPIO.LOW)
     GPIO.setup(LED_CLOSED,    GPIO.OUT, initial=GPIO.LOW)
     GPIO.setup(LED_COUNTDOWN, GPIO.OUT, initial=GPIO.LOW)
+    GPIO.setup(LED_OWNER1,    GPIO.OUT, initial=GPIO.LOW)
+    GPIO.setup(LED_OWNER2,    GPIO.OUT, initial=GPIO.LOW)
     stop()
 
 
@@ -243,17 +247,30 @@ def stop():
 
 
 def update_leds(countdown_active, stuck_alert):
+    blink = int(time.monotonic() * 2) % 2 == 0
     if stuck_alert:
-        # All three flash together — blink on even half-seconds
-        on = int(time.monotonic() * 2) % 2 == 0
-        state = GPIO.HIGH if on else GPIO.LOW
+        # All three flash together when door is stuck in a partial state
+        state = GPIO.HIGH if blink else GPIO.LOW
         GPIO.output(LED_OPEN,      state)
         GPIO.output(LED_CLOSED,    state)
         GPIO.output(LED_COUNTDOWN, state)
     else:
-        GPIO.output(LED_OPEN,      GPIO.HIGH if is_open()   else GPIO.LOW)
-        GPIO.output(LED_CLOSED,    GPIO.HIGH if is_closed() else GPIO.LOW)
+        # Green flashes while opening, solid when fully open
+        if door_state == PARTIALLY_OPEN:
+            GPIO.output(LED_OPEN, GPIO.HIGH if blink else GPIO.LOW)
+        else:
+            GPIO.output(LED_OPEN, GPIO.HIGH if is_open() else GPIO.LOW)
+        # Red flashes while closing, solid when fully closed
+        if door_state == PARTIALLY_CLOSED:
+            GPIO.output(LED_CLOSED, GPIO.HIGH if blink else GPIO.LOW)
+        else:
+            GPIO.output(LED_CLOSED, GPIO.HIGH if is_closed() else GPIO.LOW)
         GPIO.output(LED_COUNTDOWN, GPIO.HIGH if countdown_active else GPIO.LOW)
+
+    # Owner LEDs always reflect current availability
+    with _firebase_lock:
+        GPIO.output(LED_OWNER1, GPIO.HIGH if _owner_available[0] else GPIO.LOW)
+        GPIO.output(LED_OWNER2, GPIO.HIGH if _owner_available[1] else GPIO.LOW)
 
 
 def open_door():
@@ -571,6 +588,8 @@ def main():
         GPIO.output(LED_OPEN,      GPIO.LOW)
         GPIO.output(LED_CLOSED,    GPIO.LOW)
         GPIO.output(LED_COUNTDOWN, GPIO.LOW)
+        GPIO.output(LED_OWNER1,    GPIO.LOW)
+        GPIO.output(LED_OWNER2,    GPIO.LOW)
         try:
             rfid1.spi.close()
             rfid2.spi.close()

@@ -29,6 +29,8 @@
 | GPIO12 | Pin 32 | LED green (open) — via 2N2222 transistor |
 | GPIO13 | Pin 33 | LED red (closed) — via 2N2222 transistor |
 | GPIO16 | Pin 36 | LED amber (countdown) — via 2N2222 transistor |
+| GPIO20 | Pin 38 | LED blue (owner 1 available) — via 2N2222 transistor |
+| GPIO26 | Pin 37 | LED white (owner 2 available) — via 2N2222 transistor |
 | GPIO23 | Pin 16 | Override pushbutton |
 | GPIO24 | Pin 18 | RFID reader 2 — RST |
 | GPIO25 | Pin 22 | RFID reader 1 — RST |
@@ -126,9 +128,11 @@ Pi GPIO ──→ 1kΩ resistor ──→ 2N2222 Base (pin 2)
 
 | GPIO | LED Color | Meaning |
 |---|---|---|
-| GPIO12 (Pin 32) | Green | Door is open or partially open |
-| GPIO13 (Pin 33) | Red | Door is closed or partially closed |
+| GPIO12 (Pin 32) | Green | Solid: door open. Flashing: opening |
+| GPIO13 (Pin 33) | Red | Solid: door closed. Flashing: closing |
 | GPIO16 (Pin 36) | Amber | Close countdown in progress |
+| GPIO20 (Pin 38) | Blue | Owner 1 available |
+| GPIO26 (Pin 37) | White | Owner 2 available |
 
 ⚠️ The LEDs are 12-24V rated — do NOT connect directly to Pi GPIO (3.3V). The transistor switches the 12V side; the Pi only drives the base through the 1kΩ resistor.
 ⚠️ 2N2222 pin order (TO-92 package, flat side facing you): Emitter | Base | Collector (left to right).
