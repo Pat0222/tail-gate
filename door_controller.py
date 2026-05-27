@@ -32,7 +32,7 @@ LED_OWNER2    = 26  # GPIO26 (Pin 37) — white
 CLOSE_DELAY_SECS = 10
 ACTUATOR_TRAVEL_SECS = 7.84
 STATUS_INTERVAL = 2
-STUCK_ALERT_SECS = 30    # seconds in a partial state before flashing LEDs (set to 900 for production)
+STUCK_ALERT_SECS = 900   # 15 minutes in a partial state triggers flashing LEDs
 
 # Door states
 OPEN            = 'open'
