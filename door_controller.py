@@ -51,6 +51,7 @@ _owner_available = [True, True]  # default True so door works if Firebase is unr
 _firebase_command = None
 _stop_requested = False
 _firebase_db = None
+_firebase_connected = False
 
 
 def init_firebase():
@@ -86,6 +87,7 @@ def init_firebase():
         db.reference('owners/owner1').listen(make_owner_listener(0))
         db.reference('owners/owner2').listen(make_owner_listener(1))
         db.reference('command').listen(on_command)
+        _firebase_connected = True
         print("Firebase connected")
     except Exception as e:
         print(f"Firebase unavailable: {e} — operating locally")
@@ -135,17 +137,20 @@ def send_push_notification(title, body):
 
 
 def push_progress(estimated_pos):
+    global _firebase_connected
     if _firebase_db is None:
         return
     try:
         _firebase_db.reference('door').update({
             'open_pct': round((1.0 - estimated_pos) * 100)
         })
+        _firebase_connected = True
     except Exception:
-        pass
+        _firebase_connected = False
 
 
 def push_door_state():
+    global _firebase_connected
     if _firebase_db is None:
         return
     try:
@@ -153,8 +158,9 @@ def push_door_state():
             'state': door_state,
             'open_pct': round((1.0 - actuator_pos) * 100)
         })
+        _firebase_connected = True
     except Exception:
-        pass
+        _firebase_connected = False
 
 
 # State
@@ -246,7 +252,16 @@ def stop():
     GPIO.output(ENA, GPIO.LOW)
 
 
+_LED_SEQUENCE = [LED_OPEN, LED_COUNTDOWN, LED_CLOSED, LED_OWNER1, LED_OWNER2]
+
 def update_leds(countdown_active, stuck_alert):
+    if not _firebase_connected:
+        # Chase pattern: one LED at a time cycling green→amber→red→blue→white
+        slot = int(time.monotonic() / 0.3) % len(_LED_SEQUENCE)
+        for i, pin in enumerate(_LED_SEQUENCE):
+            GPIO.output(pin, GPIO.HIGH if i == slot else GPIO.LOW)
+        return
+
     blink = int(time.monotonic() * 2) % 2 == 0
     if stuck_alert:
         # All three flash together when door is stuck in a partial state
