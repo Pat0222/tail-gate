@@ -143,7 +143,7 @@ def push_progress(estimated_pos):
         return
     try:
         _firebase_db.reference('door').update({
-            'open_pct': round((1.0 - estimated_pos) * 100)
+            'open_pct': max(0, min(100, round((1.0 - estimated_pos) * 100)))
         })
         _firebase_connected = True
     except Exception:
@@ -157,7 +157,7 @@ def push_door_state():
     try:
         _firebase_db.reference('door').set({
             'state': door_state,
-            'open_pct': round((1.0 - actuator_pos) * 100)
+            'open_pct': max(0, min(100, round((1.0 - actuator_pos) * 100)))
         })
         _firebase_connected = True
     except Exception:
@@ -556,7 +556,7 @@ def main():
                         if tag is not None:
                             last_seen[i] = tag
                             if home_tag[i] is not None and tag == home_tag[i]:
-                                home_detected_time[i] = time.time()
+                                home_detected_time[i] = time.monotonic()
 
                     cross_detected = home_tag[0] is not None and (
                         (per_reader[0] is not None and per_reader[0] != home_tag[0]) or
@@ -568,8 +568,8 @@ def main():
                     if either_home and not cross_detected:
                         if close_deadline is None:
                             print(f"Dog home detected — closing in {CLOSE_DELAY_SECS}s")
-                            close_deadline = time.time() + CLOSE_DELAY_SECS
-                        elif time.time() >= close_deadline:
+                            close_deadline = time.monotonic() + CLOSE_DELAY_SECS
+                        elif time.monotonic() >= close_deadline:
                             close_deadline = None
                             if close_door(reader1, reader2, home_tag):
                                 send_push_notification("Puppy Play Time", "Dogs are home. Door closed.")
@@ -590,7 +590,7 @@ def main():
                                and time.monotonic() - partial_since >= STUCK_ALERT_SECS)
                 update_leds(close_deadline is not None, stuck_alert)
 
-                now = time.time()
+                now = time.monotonic()
                 if now - last_status >= STATUS_INTERVAL:
                     r1_str = str(per_reader[0]) if per_reader[0] is not None else 'none'
                     r2_str = str(per_reader[1]) if per_reader[1] is not None else 'none'

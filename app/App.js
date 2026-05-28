@@ -104,7 +104,7 @@ export default function App() {
             : <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
           }
           <Text style={[styles.statusText, isMoving && { color: statusColor }]}>{statusLabel}</Text>
-          <Text style={styles.pctText}>{openPct}% open</Text>
+          <Text style={styles.pctText}>{Math.max(0, Math.min(100, openPct))}% open</Text>
         </View>
       </View>
 

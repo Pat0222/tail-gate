@@ -205,7 +205,7 @@ struct DogDoorWidgetView: View {
                     Text(statusLabel)
                         .font(.headline)
                         .fontWeight(.bold)
-                    Text("\(Int(entry.openPercent))% open")
+                    Text("\(Int(entry.openPercent.rounded()))% open")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
