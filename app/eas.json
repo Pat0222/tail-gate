@@ -8,6 +8,19 @@
       "ios": {
         "resourceClass": "m-medium"
       }
+    },
+    "production": {
+      "distribution": "store",
+      "ios": {
+        "resourceClass": "m-medium"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleTeamId": "RQ8MK685VR"
+      }
     }
   }
 }

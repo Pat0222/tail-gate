@@ -2,16 +2,18 @@
   "expo": {
     "name": "Puppy Play Time",
     "slug": "puppy-play-time",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "plugins": [
-      "expo-notifications"
+      "expo-notifications",
+      "@bacons/apple-targets"
     ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.pnichols.puppyplaytime",
+      "appleTeamId": "RQ8MK685VR",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
