@@ -111,7 +111,8 @@ private func freshAnonToken() async -> String? {
 }
 
 private func anonToken() async -> String? {
-    cachedToken() ?? (await freshAnonToken())
+    if let token = cachedToken() { return token }
+    return await freshAnonToken()
 }
 
 // MARK: - AppIntents
