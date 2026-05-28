@@ -213,8 +213,8 @@ struct DogDoorWidgetView: View {
             }
 
             HStack(spacing: 12) {
-                OwnerRow(label: "Owner 1", available: entry.owner1Available)
-                OwnerRow(label: "Owner 2", available: entry.owner2Available)
+                OwnerRow(label: "Rita", available: entry.owner1Available)
+                OwnerRow(label: "Ginger", available: entry.owner2Available)
                 Spacer()
             }
 

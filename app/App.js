@@ -111,7 +111,7 @@ export default function App() {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Owner Availability</Text>
         <View style={styles.ownerRow}>
-          <Text style={styles.ownerLabel}>Owner 1</Text>
+          <Text style={styles.ownerLabel}>Rita</Text>
           <Switch
             value={owner1}
             onValueChange={v => setOwnerAvailable('owner1', v)}
@@ -119,7 +119,7 @@ export default function App() {
           />
         </View>
         <View style={[styles.ownerRow, styles.ownerRowDivider]}>
-          <Text style={styles.ownerLabel}>Owner 2</Text>
+          <Text style={styles.ownerLabel}>Ginger</Text>
           <Switch
             value={owner2}
             onValueChange={v => setOwnerAvailable('owner2', v)}

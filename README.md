@@ -164,8 +164,8 @@ See [WIRING.md](WIRING.md) for the full pin table and wiring diagrams. Key assig
 | GPIO12 | LED green (door open) |
 | GPIO13 | LED red (door closed) |
 | GPIO16 | LED amber (close countdown) |
-| GPIO20 | LED blue (Owner 1 available) |
-| GPIO26 | LED white (Owner 2 available) |
+| GPIO20 | LED blue (Rita available) |
+| GPIO26 | LED white (Ginger available) |
 
 ---
 
@@ -178,8 +178,8 @@ See [WIRING.md](WIRING.md) for the full pin table and wiring diagrams. Key assig
 | Red solid | Door closed |
 | Red flashing | Door closing |
 | Amber solid | Close countdown in progress |
-| Blue solid | Owner 1 available |
-| White solid | Owner 2 available |
+| Blue solid | Rita available |
+| White solid | Ginger available |
 | Green + amber + red flashing together | Door stuck in partial state 15+ minutes |
 | All 5 LEDs chasing in sequence | Firebase unreachable |
 
