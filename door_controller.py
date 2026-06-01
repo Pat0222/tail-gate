@@ -1,5 +1,5 @@
 import RPi.GPIO as GPIO
-from mfrc522 import MFRC522, SimpleMFRC522
+# from mfrc522 import MFRC522, SimpleMFRC522  # UHF RFID upgrade pending — see README
 import time
 import os
 import threading
@@ -7,12 +7,10 @@ import json
 import urllib.request
 import signal
 
-# RFID tag IDs
-AUTHORIZED_TAGS = {613025449752, 372068189196}
-
-# Default home-side assignment — set each to the tag ID of the dog on that reader's side of the fence
-READER1_HOME_TAG = 613025449752
-READER2_HOME_TAG = 372068189196
+# --- RFID tag IDs (reserved for UHF RFID upgrade) ---
+# AUTHORIZED_TAGS  = {613025449752, 372068189196}
+# READER1_HOME_TAG = 613025449752
+# READER2_HOME_TAG = 372068189196
 
 # GPIO pins (BCM)
 IN1 = 17
@@ -25,19 +23,27 @@ SW_CLOSE = 6    # GPIO6 (Pin 31) — manual switch -VE(Load) — extends actuato
 LED_OPEN      = 12  # GPIO12 (Pin 32) — green
 LED_CLOSED    = 13  # GPIO13 (Pin 33) — red
 LED_COUNTDOWN = 16  # GPIO16 (Pin 36) — amber
-LED_OWNER1    = 20  # GPIO20 (Pin 38) — blue
-LED_OWNER2    = 26  # GPIO26 (Pin 37) — white
+LED_OWNER1    = 20  # GPIO20 (Pin 38) — blue (Rita)
+LED_OWNER2    = 26  # GPIO26 (Pin 37) — white (Ginger)
+
+# Buzzer pin (BCM)
+BUZZER_PIN = 23  # GPIO23 (Pin 16) — passive buzzer
+
+# Button pins (BCM) — active LOW with internal pull-up
+BTN_RESTART = 24  # GPIO24 — service restart (short press)
+BTN_REBOOT  = 25  # GPIO25 — Pi reboot (hold 3s)
 
 # Timing
-CLOSE_DELAY_SECS = 10
+CLOSE_DELAY_SECS  = 10
+REBOOT_HOLD_SECS  = 3
 ACTUATOR_TRAVEL_SECS = 7.84
 STATUS_INTERVAL = 2
 STUCK_ALERT_SECS = 900   # 15 minutes in a partial state triggers flashing LEDs
 
 # Door states
-OPEN            = 'open'
-CLOSED          = 'closed'
-PARTIALLY_OPEN  = 'partially_open'
+OPEN             = 'open'
+CLOSED           = 'closed'
+PARTIALLY_OPEN   = 'partially_open'
 PARTIALLY_CLOSED = 'partially_closed'
 
 VALID_STATES = {OPEN, CLOSED, PARTIALLY_OPEN, PARTIALLY_CLOSED}
@@ -53,6 +59,88 @@ _stop_requested = False
 _firebase_db = None
 _firebase_connected = False
 _startup_time = time.monotonic()
+
+_buzzer_pwm  = None
+_buzzer_lock = threading.Lock()
+
+_oled_stop = False
+_restart_requested = False
+
+# Beep patterns: list of (frequency_hz, on_secs, off_secs)
+BEEP_OPEN  = [(1000, 0.1, 0.05), (1200, 0.15, 0)]
+BEEP_CLOSE = [(1200, 0.1, 0.05), (1000, 0.15, 0)]
+BEEP_STUCK = [(2000, 0.05, 0.05)] * 3
+
+
+def get_wifi_dbm():
+    try:
+        with open('/proc/net/wireless') as f:
+            for line in f:
+                if 'wlan0' in line:
+                    parts = line.split()
+                    return int(float(parts[3].rstrip('.')))
+    except Exception:
+        return None
+
+
+def oled_loop():
+    try:
+        from luma.core.interface.serial import i2c as luma_i2c
+        from luma.oled.device import ssd1306
+        from luma.core.render import canvas
+        serial = luma_i2c(port=1, address=0x3C)
+        device = ssd1306(serial)
+    except Exception as e:
+        print(f"OLED unavailable: {e}")
+        return
+
+    print("OLED ready")
+    while not _oled_stop:
+        try:
+            wifi = get_wifi_dbm()
+            state = door_state
+            pct = round((1.0 - actuator_pos) * 100)
+            with _firebase_lock:
+                o1 = _owner_available[0]
+                o2 = _owner_available[1]
+
+            if o1 and o2:
+                owner_str = "Owners: both"
+            elif o1:
+                owner_str = "Owners: 1 only"
+            elif o2:
+                owner_str = "Owners: 2 only"
+            else:
+                owner_str = "Owners: away"
+
+            state_label = state.replace('_', ' ').upper()
+            wifi_str = f"WiFi: {wifi} dBm" if wifi is not None else "WiFi: N/A"
+
+            with canvas(device) as draw:
+                draw.text((0,  0), state_label, fill="white")
+                draw.text((0, 16), f"Open: {pct}%", fill="white")
+                draw.text((0, 32), owner_str,        fill="white")
+                draw.text((0, 48), wifi_str,          fill="white")
+        except Exception:
+            pass
+        time.sleep(1)
+
+
+def beep_pattern(pattern):
+    def _do():
+        if not _buzzer_lock.acquire(blocking=False):
+            return
+        try:
+            for freq, on, off in pattern:
+                _buzzer_pwm.ChangeFrequency(freq)
+                _buzzer_pwm.start(50)
+                time.sleep(on)
+                _buzzer_pwm.stop()
+                if off > 0:
+                    time.sleep(off)
+        finally:
+            _buzzer_lock.release()
+    threading.Thread(target=_do, daemon=True).start()
 
 
 def init_firebase():
@@ -220,6 +308,7 @@ door_state = load_door_state()
 
 
 def setup_gpio():
+    global _buzzer_pwm
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
     GPIO.setup(IN1, GPIO.OUT)
@@ -232,6 +321,10 @@ def setup_gpio():
     GPIO.setup(LED_COUNTDOWN, GPIO.OUT, initial=GPIO.LOW)
     GPIO.setup(LED_OWNER1,    GPIO.OUT, initial=GPIO.LOW)
     GPIO.setup(LED_OWNER2,    GPIO.OUT, initial=GPIO.LOW)
+    GPIO.setup(BUZZER_PIN, GPIO.OUT, initial=GPIO.LOW)
+    _buzzer_pwm = GPIO.PWM(BUZZER_PIN, 1000)
+    GPIO.setup(BTN_RESTART, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    GPIO.setup(BTN_REBOOT,  GPIO.IN, pull_up_down=GPIO.PUD_UP)
     stop()
 
 
@@ -319,7 +412,7 @@ def open_door():
     return True
 
 
-def close_door(reader1, reader2, home_tag=None):
+def close_door():
     global closing, actuator_pos, _stop_requested
     closing = True
     set_state(PARTIALLY_CLOSED)
@@ -344,22 +437,23 @@ def close_door(reader1, reader2, home_tag=None):
             _stop_requested = False
             print("Door close interrupted")
             return False
-        per_reader = scan_tags_per_reader(reader1, reader2)
-        if home_tag and home_tag[0] is not None:
-            reverse = (
-                (per_reader[0] is not None and per_reader[0] != home_tag[0]) or
-                (per_reader[1] is not None and per_reader[1] != home_tag[1])
-            )
-        else:
-            reverse = any(t is not None for t in per_reader)
-        if reverse:
-            print("Tag on wrong side during close — reversing")
-            stop()
-            actuator_pos = min(1.0, actuator_pos + (time.monotonic() - start) / ACTUATOR_TRAVEL_SECS)
-            time.sleep(0.2)
-            open_door()
-            closing = False
-            return False
+        # --- RFID reverse-on-tag logic (reserved for UHF RFID upgrade) ---
+        # per_reader = scan_tags_per_reader(reader1, reader2)
+        # if home_tag and home_tag[0] is not None:
+        #     reverse = (
+        #         (per_reader[0] is not None and per_reader[0] != home_tag[0]) or
+        #         (per_reader[1] is not None and per_reader[1] != home_tag[1])
+        #     )
+        # else:
+        #     reverse = any(t is not None for t in per_reader)
+        # if reverse:
+        #     print("Tag on wrong side during close — reversing")
+        #     stop()
+        #     actuator_pos = min(1.0, actuator_pos + (time.monotonic() - start) / ACTUATOR_TRAVEL_SECS)
+        #     time.sleep(0.2)
+        #     open_door()
+        #     closing = False
+        #     return False
     stop()
     actuator_pos = 1.0
     closing = False
@@ -440,53 +534,59 @@ def close_door_manual():
     return True
 
 
-def scan_tags_per_reader(reader1, reader2):
-    result = []
-    for reader in [reader1, reader2]:
-        tag = None
-        (status, _) = reader.READER.MFRC522_Request(reader.READER.PICC_REQALL)
-        if status == reader.READER.MI_OK:
-            (status, uid) = reader.READER.MFRC522_Anticoll()
-            if status == reader.READER.MI_OK:
-                t = 0
-                for byte in uid:
-                    t = t * 256 + byte
-                if t in AUTHORIZED_TAGS:
-                    tag = t
-        reader.READER.MFRC522_Init()
-        result.append(tag)
-    return result  # [tag_at_reader1|None, tag_at_reader2|None]
-
-
-def scan_tags(reader1, reader2):
-    return {t for t in scan_tags_per_reader(reader1, reader2) if t is not None}
+# --- RFID scan functions (reserved for UHF RFID upgrade) ---
+# def scan_tags_per_reader(reader1, reader2):
+#     result = []
+#     for reader in [reader1, reader2]:
+#         tag = None
+#         (status, _) = reader.READER.MFRC522_Request(reader.READER.PICC_REQALL)
+#         if status == reader.READER.MI_OK:
+#             (status, uid) = reader.READER.MFRC522_Anticoll()
+#             if status == reader.READER.MI_OK:
+#                 t = 0
+#                 for byte in uid:
+#                     t = t * 256 + byte
+#                 if t in AUTHORIZED_TAGS:
+#                     tag = t
+#         reader.READER.MFRC522_Init()
+#         result.append(tag)
+#     return result  # [tag_at_reader1|None, tag_at_reader2|None]
+#
+# def scan_tags(reader1, reader2):
+#     return {t for t in scan_tags_per_reader(reader1, reader2) if t is not None}
 
 
 def main():
-    global closing
+    global closing, _restart_requested
 
     setup_gpio()
     init_firebase()
 
-    rfid1 = MFRC522(bus=0, device=0, pin_rst=25)
-    rfid2 = MFRC522(bus=0, device=1, pin_rst=24)
+    # --- RFID reader initialization (reserved for UHF RFID upgrade) ---
+    # rfid1 = MFRC522(bus=0, device=0, pin_rst=25)
+    # rfid2 = MFRC522(bus=0, device=1, pin_rst=24)
+    # reader1 = SimpleMFRC522()
+    # reader1.READER = rfid1
+    # reader2 = SimpleMFRC522()
+    # reader2.READER = rfid2
 
-    reader1 = SimpleMFRC522()
-    reader1.READER = rfid1
-
-    reader2 = SimpleMFRC522()
-    reader2.READER = rfid2
+    threading.Thread(target=oled_loop, daemon=True).start()
 
     print(f"Dog door ready — state: {door_state}")
 
-    prev_sw_open  = False
-    prev_sw_close = False
-    last_status = 0
-    home_tag = [None, None]        # tag that belongs on each reader's side, set when door opens via RFID
-    last_seen = [None, None]       # most recent authorized tag detected by each reader
-    home_detected_time = [None, None]  # when each reader last saw its home dog
-    close_deadline = None
-    partial_since = time.monotonic() if door_state in (PARTIALLY_OPEN, PARTIALLY_CLOSED) else None
+    prev_sw_open        = False
+    prev_sw_close       = False
+    last_status         = 0
+    last_stuck_beep     = 0
+    restart_press_start = None
+    reboot_press_start  = None
+    partial_since       = time.monotonic() if door_state in (PARTIALLY_OPEN, PARTIALLY_CLOSED) else None
+
+    # --- RFID tracking state (reserved for UHF RFID upgrade) ---
+    # home_tag           = [None, None]
+    # last_seen          = [None, None]
+    # home_detected_time = [None, None]
+    # close_deadline     = None
 
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
 
@@ -499,22 +599,43 @@ def main():
             if sw_open and not prev_sw_open and door_state != OPEN and not closing:
                 print("Manual switch — opening door")
                 if open_door_manual():
+                    beep_pattern(BEEP_OPEN)
                     send_push_notification("Puppy Play Time", "Door opened manually.")
-                home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
-                last_seen[:] = [None, None]
-                home_detected_time[:] = [None, None]
-                close_deadline = None
             elif sw_close and not prev_sw_close and door_state != CLOSED and not closing:
                 print("Manual switch — closing door")
                 if close_door_manual():
+                    beep_pattern(BEEP_CLOSE)
                     send_push_notification("Puppy Play Time", "Door closed manually.")
-                home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
-                last_seen[:] = [None, None]
-                home_detected_time[:] = [None, None]
-                close_deadline = None
 
             prev_sw_open  = sw_open
             prev_sw_close = sw_close
+
+            # Service restart button — hold 1s to trigger
+            if not GPIO.input(BTN_RESTART):
+                if restart_press_start is None:
+                    restart_press_start = time.monotonic()
+                elif time.monotonic() - restart_press_start >= 1.0:
+                    print("Restart button held — restarting service")
+                    beep_pattern([(1000, 0.1, 0.05), (1000, 0.1, 0)])
+                    time.sleep(0.5)
+                    _restart_requested = True
+            else:
+                restart_press_start = None
+
+            if _restart_requested:
+                raise KeyboardInterrupt
+
+            # Reboot button — hold for REBOOT_HOLD_SECS
+            if not GPIO.input(BTN_REBOOT):
+                if reboot_press_start is None:
+                    reboot_press_start = time.monotonic()
+                elif time.monotonic() - reboot_press_start >= REBOOT_HOLD_SECS:
+                    print("Reboot button held — rebooting Pi")
+                    beep_pattern([(500, 0.2, 0.1)] * 3)
+                    time.sleep(1)
+                    os.system("sudo reboot")
+            else:
+                reboot_press_start = None
 
             if not closing:
                 # Handle app commands
@@ -522,63 +643,55 @@ def main():
                 if cmd == 'open' and door_state != OPEN and both_owners_available():
                     print("App command — opening door")
                     if open_door():
+                        beep_pattern(BEEP_OPEN)
                         send_push_notification("Puppy Play Time", "Door opened via app.")
-                    home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
-                    last_seen[:] = [None, None]
-                    home_detected_time[:] = [None, None]
-                    close_deadline = None
                 elif cmd == 'close' and door_state != CLOSED:
                     print("App command — closing door")
-                    if close_door(reader1, reader2):
+                    if close_door():
+                        beep_pattern(BEEP_CLOSE)
                         send_push_notification("Puppy Play Time", "Door closed via app.")
-                    home_tag[:] = [READER1_HOME_TAG, READER2_HOME_TAG]
-                    last_seen[:] = [None, None]
-                    home_detected_time[:] = [None, None]
-                    close_deadline = None
 
-                per_reader = scan_tags_per_reader(reader1, reader2)
-                tags = {t for t in per_reader if t is not None}
+                # --- RFID open trigger (reserved for UHF RFID upgrade) ---
+                # per_reader = scan_tags_per_reader(reader1, reader2)
+                # if is_closed():
+                #     if (per_reader[0] is not None and per_reader[1] is not None
+                #             and per_reader[0] != per_reader[1]
+                #             and both_owners_available()):
+                #         print("Both tags on opposite sides — opening door")
+                #         home_tag[:] = per_reader
+                #         last_seen[:] = [None, None]
+                #         home_detected_time[:] = [None, None]
+                #         close_deadline = None
+                #         if open_door():
+                #             send_push_notification("Puppy Play Time", "Door opened — the dogs are playing.")
 
-                if is_closed():
-                    if (per_reader[0] is not None and per_reader[1] is not None
-                            and per_reader[0] != per_reader[1]
-                            and both_owners_available()):
-                        print("Both tags on opposite sides — opening door")
-                        home_tag[:] = per_reader
-                        last_seen[:] = [None, None]
-                        home_detected_time[:] = [None, None]
-                        close_deadline = None
-                        if open_door():
-                            send_push_notification("Puppy Play Time", "Door opened — the dogs are playing.")
-
-                elif is_open():
-                    for i, tag in enumerate(per_reader):
-                        if tag is not None:
-                            last_seen[i] = tag
-                            if home_tag[i] is not None and tag == home_tag[i]:
-                                home_detected_time[i] = time.monotonic()
-
-                    cross_detected = home_tag[0] is not None and (
-                        (per_reader[0] is not None and per_reader[0] != home_tag[0]) or
-                        (per_reader[1] is not None and per_reader[1] != home_tag[1])
-                    )
-                    either_home = (home_tag[0] is not None
-                                   and any(t is not None for t in home_detected_time))
-
-                    if either_home and not cross_detected:
-                        if close_deadline is None:
-                            print(f"Dog home detected — closing in {CLOSE_DELAY_SECS}s")
-                            close_deadline = time.monotonic() + CLOSE_DELAY_SECS
-                        elif time.monotonic() >= close_deadline:
-                            close_deadline = None
-                            if close_door(reader1, reader2, home_tag):
-                                send_push_notification("Puppy Play Time", "Dogs are home. Door closed.")
-                    else:
-                        if close_deadline is not None:
-                            print("Dog activity detected — cancelling close")
-                        close_deadline = None
-                        if cross_detected:
-                            home_detected_time[:] = [None, None]
+                # --- RFID auto-close trigger (reserved for UHF RFID upgrade) ---
+                # elif is_open():
+                #     for i, tag in enumerate(per_reader):
+                #         if tag is not None:
+                #             last_seen[i] = tag
+                #             if home_tag[i] is not None and tag == home_tag[i]:
+                #                 home_detected_time[i] = time.monotonic()
+                #     cross_detected = home_tag[0] is not None and (
+                #         (per_reader[0] is not None and per_reader[0] != home_tag[0]) or
+                #         (per_reader[1] is not None and per_reader[1] != home_tag[1])
+                #     )
+                #     either_home = (home_tag[0] is not None
+                #                    and any(t is not None for t in home_detected_time))
+                #     if either_home and not cross_detected:
+                #         if close_deadline is None:
+                #             print(f"Dog home detected — closing in {CLOSE_DELAY_SECS}s")
+                #             close_deadline = time.monotonic() + CLOSE_DELAY_SECS
+                #         elif time.monotonic() >= close_deadline:
+                #             close_deadline = None
+                #             if close_door():
+                #                 send_push_notification("Puppy Play Time", "Dogs are home. Door closed.")
+                #     else:
+                #         if close_deadline is not None:
+                #             print("Dog activity detected — cancelling close")
+                #         close_deadline = None
+                #         if cross_detected:
+                #             home_detected_time[:] = [None, None]
 
                 # Track how long door has been in a partial state
                 if door_state in (PARTIALLY_OPEN, PARTIALLY_CLOSED):
@@ -588,16 +701,17 @@ def main():
                     partial_since = None
                 stuck_alert = (partial_since is not None
                                and time.monotonic() - partial_since >= STUCK_ALERT_SECS)
-                update_leds(close_deadline is not None, stuck_alert)
+                if stuck_alert and time.monotonic() - last_stuck_beep >= 30:
+                    beep_pattern(BEEP_STUCK)
+                    last_stuck_beep = time.monotonic()
+                update_leds(False, stuck_alert)
 
                 now = time.monotonic()
                 if now - last_status >= STATUS_INTERVAL:
-                    r1_str = str(per_reader[0]) if per_reader[0] is not None else 'none'
-                    r2_str = str(per_reader[1]) if per_reader[1] is not None else 'none'
-                    sw_str = 'open' if sw_open else ('close' if sw_close else 'neutral')
+                    sw_str   = 'open' if sw_open else ('close' if sw_close else 'neutral')
                     open_pct = round((1.0 - actuator_pos) * 100)
                     avail_str = 'both' if both_owners_available() else ('owner1' if _owner_available[0] else ('owner2' if _owner_available[1] else 'none'))
-                    print(f"[status] door={door_state} ({open_pct}%) | r1={r1_str} | r2={r2_str} | switch={sw_str} | owners={avail_str}")
+                    print(f"[status] door={door_state} ({open_pct}%) | switch={sw_str} | owners={avail_str}")
                     last_status = now
 
             time.sleep(0.2)
@@ -605,18 +719,24 @@ def main():
     except KeyboardInterrupt:
         print("Shutting down")
     finally:
+        global _oled_stop
+        _oled_stop = True
         stop()
+        if _buzzer_pwm:
+            _buzzer_pwm.stop()
         GPIO.output(LED_OPEN,      GPIO.LOW)
         GPIO.output(LED_CLOSED,    GPIO.LOW)
         GPIO.output(LED_COUNTDOWN, GPIO.LOW)
         GPIO.output(LED_OWNER1,    GPIO.LOW)
         GPIO.output(LED_OWNER2,    GPIO.LOW)
-        try:
-            rfid1.spi.close()
-            rfid2.spi.close()
-        except Exception:
-            pass
+        # --- RFID cleanup (reserved for UHF RFID upgrade) ---
+        # try:
+        #     rfid1.spi.close()
+        #     rfid2.spi.close()
+        # except Exception:
+        #     pass
         GPIO.cleanup()
+        os._exit(0)
 
 
 if __name__ == '__main__':
