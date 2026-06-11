@@ -12,8 +12,11 @@ A solar-powered, RFID-triggered dog door controlled by a Raspberry Pi Zero 2 W. 
 - **Owner availability** — each owner can toggle their availability; door only opens automatically when both are available
 - **Push notifications** — alerts when the door opens, closes, or the dogs come home
 - **LED status panel** — 5 indicator lights show door state, motion, countdown, and owner availability
-- **Manual override** — physical switch and override pushbutton work regardless of owner availability
+- **Manual override** — physical 3-position toggle switch works regardless of owner availability
 - **Emergency stop** — app button halts door mid-movement
+- **OLED display** — live door state, open %, owner availability, WiFi signal strength
+- **Buzzer** — audio feedback on open/close/stuck events
+- **Physical buttons** — restart service (1s hold), reboot Pi (3s hold), shutdown (both buttons 2s hold); all with OLED animations and countdown cancellation
 - **Solar powered** — 30W panel, MPPT charge controller, 12V 7Ah SLA battery
 - **Firebase backend** — real-time sync between Pi and app via Firebase Realtime Database
 
@@ -25,6 +28,8 @@ A solar-powered, RFID-triggered dog door controlled by a Raspberry Pi Zero 2 W. 
 dog-door/
 ├── door_controller.py      # Main Pi controller script
 ├── dog-door.service        # systemd service unit
+├── deploy-to-pi.sh         # Mac: copies all files to Pi after reflash
+├── setup-pi.sh             # Pi: installs deps, service, I2C after reflash
 ├── WIRING.md               # Full GPIO pin assignments and wiring diagrams
 ├── PARTS.md                # Bill of materials with purchase links
 ├── RFID_TAGS.md            # Tag IDs and reader assignments
@@ -48,14 +53,18 @@ dog-door/
 | Controller | Raspberry Pi Zero 2 W + PiZ-EzConnect screw terminal breakout |
 | Motor driver | L298N dual H-bridge |
 | Actuator | 12V linear actuator, 4" stroke, 14mm/s, 220 lb force |
-| RFID readers | 2× MFRC522 (SPI, one per side of door) |
+| RFID readers | 2× MFRC522 (SPI, one per side of door) — deferred, range insufficient |
 | RFID tags | 13.56 MHz Mifare collar tags |
 | Power | 30W solar panel, 10A MPPT charge controller, 12V 7Ah SLA battery |
 | Pi power | DROK buck converter (12V → 5V) |
 | Enclosures | 2× TICONN IP67 8.7"×6.7"×4.3" weatherproof boxes |
 | LEDs | 5× Gebildet 12-24V panel indicators (green/red/amber/blue/white) |
 | Transistors | 2N2222 NPN (one per LED) |
-| Speaker | MAX98357A I2S amplifier |
+| OLED display | 0.96" SSD1306 I2C (128×64) |
+| Buzzer | Passive buzzer on GPIO23 |
+| Buttons | 2× tactile pushbuttons (restart + reboot/shutdown) |
+| Perfboard | 70×90mm perfboard with LED driver circuits, buzzer, OLED, buttons |
+| Speaker | MAX98357A I2S amplifier (future) |
 
 See [PARTS.md](PARTS.md) for full bill of materials and purchase links.
 
@@ -96,14 +105,28 @@ MPPT charge controller ──→ 12V SLA battery
 
 ## Pi Setup
 
-### Prerequisites
+### Quick setup after reflashing
 
+Two scripts handle the full setup workflow:
+
+**1. On your Mac** — copies all files to the Pi (grabs the latest Firebase key from `~/Downloads` automatically):
 ```bash
-# Raspberry Pi OS Lite (64-bit), SSH enabled
-# SPI enabled via raspi-config → Interface Options → SPI
-
-pip install RPi.GPIO mfrc522 firebase-admin
+chmod +x deploy-to-pi.sh
+./deploy-to-pi.sh
 ```
+
+**2. On the Pi** — installs dependencies, sets up the venv, installs and starts the service:
+```bash
+ssh pat0222@dogdoorpi.local './setup-pi.sh'
+```
+
+When reflashing, use Raspberry Pi Imager with:
+- **Device:** Raspberry Pi Zero 2 W
+- **OS:** Raspberry Pi OS Lite (64-bit)
+- **WiFi SSID:** CerberusIoT24 (2.4GHz — Pi Zero 2 W does not support 5GHz)
+- **Hostname:** dogdoorpi
+- **Username:** pat0222
+- **Enable SSH:** yes (password authentication)
 
 ### Firebase service account
 
@@ -152,20 +175,50 @@ sudo journalctl -u dog-door -f
 
 ## GPIO Pin Assignments
 
-See [WIRING.md](WIRING.md) for the full pin table and wiring diagrams. Key assignments:
+| GPIO | Pin | Function |
+|---|---|---|
+| GPIO2 | 3 | OLED SDA (I2C) |
+| GPIO3 | 5 | OLED SCL (I2C) |
+| GPIO5 | 29 | Manual switch SW_OPEN |
+| GPIO6 | 31 | Manual switch SW_CLOSE |
+| GPIO12 | 32 | LED green (door open) |
+| GPIO13 | 33 | LED red (door closed) |
+| GPIO16 | 36 | LED amber (close countdown) |
+| GPIO17 | 11 | L298N IN1 |
+| GPIO20 | 38 | LED blue (Rita available) |
+| GPIO22 | 15 | L298N ENA |
+| GPIO23 | 16 | Passive buzzer (PWM) |
+| GPIO24 | 18 | BTN_RESTART |
+| GPIO25 | 22 | BTN_REBOOT/shutdown |
+| GPIO26 | 37 | LED white (Ginger available) |
+| GPIO27 | 13 | L298N IN2 |
 
-| GPIO | Function |
+---
+
+## Physical Buttons
+
+| Action | Result |
 |---|---|
-| GPIO17, GPIO27 | L298N IN1, IN2 (actuator direction) |
-| GPIO22 | L298N ENA (actuator enable) |
-| GPIO8, GPIO7 | RFID reader 1, 2 SDA (SPI CE0/CE1) |
-| GPIO5, GPIO6 | Manual switch open/close |
-| GPIO23 | Override pushbutton |
-| GPIO12 | LED green (door open) |
-| GPIO13 | LED red (door closed) |
-| GPIO16 | LED amber (close countdown) |
-| GPIO20 | LED blue (Rita available) |
-| GPIO26 | LED white (Ginger available) |
+| Hold BTN_RESTART 1s | Scrolls "RESTARTING DOG DOOR SERVICE" → restarts service |
+| Hold BTN_REBOOT 3s | "REBOOTING PI IN" scroll → 5–1 countdown → mushroom cloud → reboot |
+| Press BTN_REBOOT during reboot countdown | "REBOOT CANCELLED" — aborts reboot |
+| Hold both buttons 2s | "SHUTTING DOWN IN" scroll → 5–1 countdown → poop emoji → shutdown |
+| Press either button during shutdown countdown | "SHUTDOWN CANCELLED" — aborts shutdown |
+
+---
+
+## OLED Display
+
+The 128×64 SSD1306 display shows live status updated every second:
+
+```
+CLOSED
+Open: 0%
+Owners: both
+WiFi: -62 dBm
+```
+
+I2C must be enabled on the Pi: `sudo raspi-config nonint do_i2c 0`
 
 ---
 
@@ -282,8 +335,9 @@ Both dogs detected on opposite sides
 
 ## Planned Improvements
 
-- [ ] Replace MFRC522 readers with SparkFun M6E Nano UHF RFID module + dual external weatherproof patch antennas for reliable medium-dog detection at 0.5–2 meter range
-- [ ] Mount components in two TICONN IP67 enclosures (electronics + power)
+- [ ] Wire panel LEDs to J2 and complete enclosure installation
+- [ ] Apply Firebase security rules (ready, waiting for next TestFlight build)
+- [ ] Add neighbor as TestFlight tester
 - [ ] Apple Watch app
 - [ ] Add MAX98357A amplifier and speaker for audio alerts
-- [ ] Add neighbor as TestFlight tester
+- [ ] Replace MFRC522 readers with UHF RFID (R200-based module + patch antennas) for reliable medium-dog detection at 0.5–2 meter range

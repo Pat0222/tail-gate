@@ -173,7 +173,7 @@ Solar panel ──→ Charge controller ──→ 12V SLA battery
 
 ## Notes
 - Solder the 2×20 header onto the Pi Zero 2 W first, then assemble the PiZ-EzConnect terminal blocks onto the board
-- The PiZ-EzConnect plugs onto the Pi's GPIO header and provides screw terminals for every pin — use these instead of jumper wires for the final installation
+- The PiZ-EzConnect plugs onto the Pi's GPIO header and provides screw terminals for the odd numbered pins — use these instead of jumper wires for the final installation
 - For bench testing, jumper wires into the PiZ-EzConnect terminals work fine
 - Set the buck converter output to exactly 5V with a multimeter before connecting the Pi
 - The reverse polarity switch controller that came with the actuator is bypassed entirely — set it aside

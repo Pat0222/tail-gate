@@ -8,8 +8,9 @@ Type=simple
 User=pat0222
 WorkingDirectory=/home/pat0222/dog-door
 ExecStart=/home/pat0222/dog-door/venv/bin/python door_controller.py
-Restart=on-failure
+Restart=always
 RestartSec=5
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
