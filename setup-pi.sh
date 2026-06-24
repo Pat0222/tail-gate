@@ -15,7 +15,7 @@ mkdir -p /home/pat0222/dog-door
 
 echo "==> Setting up Python venv..."
 python3 -m venv /home/pat0222/dog-door/venv
-/home/pat0222/dog-door/venv/bin/pip install -v RPi.GPIO luma.oled firebase-admin
+/home/pat0222/dog-door/venv/bin/pip install -v RPi.GPIO luma.oled firebase-admin astral
 
 echo "==> Installing systemd services..."
 sudo mv /home/pat0222/dog-door.service /etc/systemd/system/

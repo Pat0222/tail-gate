@@ -35,6 +35,9 @@ const Colors = {
     segmentBg:     '#E5E5EA',
     segmentActive: '#FFFFFF',
     switchOff:     '#E5E5EA',
+    btnOpen:       '#34C759',
+    btnClose:      '#FF3B30',
+    btnStop:       '#FF9500',
   },
   dark: {
     background:    '#000000',
@@ -47,6 +50,9 @@ const Colors = {
     segmentBg:     '#2C2C2E',
     segmentActive: '#48484A',
     switchOff:     '#39393D',
+    btnOpen:       '#1E7A32',
+    btnClose:      '#922B21',
+    btnStop:       '#BF6900',
   },
 };
 
@@ -93,6 +99,7 @@ export default function App() {
   const [testLeds, setTestLeds]             = useState({ ...INIT_LEDS });
   const [testSwitchState, setTestSwitchState] = useState({ open: false, close: false });
   const [nightMode, setNightModeState]      = useState('auto');
+  const [nightOffOverride, setNightOffOverride] = useState(false);
 
   useEffect(() => {
     const unsubDoor = onValue(ref(db, 'door'), snapshot => {
@@ -117,6 +124,10 @@ export default function App() {
       else setNightModeState(val ? 'on' : 'off');
     });
 
+    const unsubNightOff = onValue(ref(db, 'settings/night_off_override'), snapshot => {
+      setNightOffOverride(snapshot.val() === true);
+    });
+
     registerForPushNotifications().then(token => {
       if (token) {
         const key = token.replace(/[[\]]/g, '');
@@ -124,7 +135,7 @@ export default function App() {
       }
     });
 
-    return () => { unsubDoor(); unsubOwners(); unsubNightMode(); };
+    return () => { unsubDoor(); unsubOwners(); unsubNightMode(); unsubNightOff(); };
   }, []);
 
   useEffect(() => {
@@ -177,6 +188,11 @@ export default function App() {
     set(ref(db, 'settings/night_mode_override'), value === 'auto' ? null : value === 'on');
   };
 
+  const toggleNightOffOverride = (value) => {
+    setNightOffOverride(value);
+    set(ref(db, 'settings/night_off_override'), value || null);
+  };
+
   const isMoving      = doorState === 'partially_open' || doorState === 'partially_closed';
   const statusColor   = DOOR_COLORS[doorState] ?? '#8E8E93';
   const statusLabel   = isMoving
@@ -221,10 +237,26 @@ export default function App() {
             ))}
           </View>
           <Text style={styles.sectionDesc}>
-            {nightMode === 'auto' ? 'Dims automatically 10 PM – 7 AM'
+            {nightMode === 'auto' ? 'Fades with sunrise/sunset, off 10 PM – 7 AM'
               : nightMode === 'on' ? 'LEDs dimmed'
               : 'LEDs at full brightness'}
           </Text>
+          <View style={[styles.ownerRow, styles.ownerRowDivider, { borderTopColor: C.divider }]}>
+            <View style={styles.settingsRowLeft}>
+              <View style={[styles.settingsIconBg, { backgroundColor: '#FF3B30' }]}>
+                <Ionicons name="eye-outline" size={16} color="#fff" />
+              </View>
+              <View>
+                <Text style={[styles.settingsRowText, { color: C.text }]}>Night Lights Override</Text>
+                <Text style={[styles.sectionDesc, { marginTop: 0 }]}>Keep LEDs on 10 PM – 7 AM</Text>
+              </View>
+            </View>
+            <Switch
+              value={nightOffOverride}
+              onValueChange={toggleNightOffOverride}
+              trackColor={{ false: C.switchOff, true: '#FF3B30' }}
+            />
+          </View>
         </View>
 
         <Text style={styles.sectionHeader}>Diagnostic Tools</Text>
@@ -313,13 +345,13 @@ export default function App() {
           <Text style={styles.sectionDesc}>Moves the actuator — make sure the L298N is connected.</Text>
           <View style={[styles.card, { backgroundColor: C.card, marginBottom: 32 }]}>
             <TouchableOpacity
-              style={[styles.button, styles.openButton]}
+              style={[styles.button, { backgroundColor: C.btnOpen }]}
               onPress={() => simulateSwitch('open')}
             >
               <Text style={styles.buttonText}>Simulate Open</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.button, styles.closeButton]}
+              style={[styles.button, { backgroundColor: C.btnClose }]}
               onPress={() => simulateSwitch('close')}
             >
               <Text style={styles.buttonText}>Simulate Close</Text>
@@ -336,7 +368,7 @@ export default function App() {
     <SafeAreaView style={[styles.container, { backgroundColor: C.background }]}>
 
       <View style={styles.titleRow}>
-        <Text style={[styles.title, { color: C.text }]}>Puppy Play Time</Text>
+        <Text style={[styles.title, { color: C.text }]}>Tail Gate RG</Text>
         <TouchableOpacity onPress={() => setScreen('settings')}>
           <Ionicons name="settings-outline" size={28} color={C.textSecondary} />
         </TouchableOpacity>
@@ -380,20 +412,20 @@ export default function App() {
       <View style={[styles.card, { backgroundColor: C.card }]}>
         <Text style={styles.cardTitle}>Manual Control</Text>
         <TouchableOpacity
-          style={[styles.button, styles.openButton, !bothAvailable && styles.buttonDisabled]}
+          style={[styles.button, { backgroundColor: C.btnOpen }, !bothAvailable && styles.buttonDisabled]}
           onPress={() => sendCommand('open')}
           disabled={!bothAvailable}
         >
           <Text style={styles.buttonText}>Open Door</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.button, styles.closeButton]}
+          style={[styles.button, { backgroundColor: C.btnClose }]}
           onPress={() => sendCommand('close')}
         >
           <Text style={styles.buttonText}>Close Door</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.button, styles.stopButton]}
+          style={[styles.button, { backgroundColor: C.btnStop }]}
           onPress={() => sendCommand('stop')}
         >
           <Text style={styles.buttonText}>Emergency Stop</Text>
@@ -608,15 +640,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 10,
-  },
-  openButton: {
-    backgroundColor: '#34C759',
-  },
-  closeButton: {
-    backgroundColor: '#FF3B30',
-  },
-  stopButton: {
-    backgroundColor: '#FF9500',
   },
   buttonDisabled: {
     backgroundColor: '#C7C7CC',

@@ -1,3 +1,4 @@
 RPi.GPIO
 luma.oled
 firebase-admin
+astral

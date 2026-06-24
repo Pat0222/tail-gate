@@ -6,6 +6,10 @@ import threading
 import json
 import urllib.request
 import signal
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from astral import LocationInfo
+from astral.sun import sun as astral_sun
 
 # --- RFID tag IDs (reserved for UHF RFID upgrade) ---
 # AUTHORIZED_TAGS  = {613025449752, 372068189196}
@@ -55,12 +59,18 @@ _firebase_db     = None
 _firebase_connected = False
 _startup_time    = time.monotonic()
 
-NIGHT_START_HOUR = 22
-NIGHT_END_HOUR   = 7
-DIM_DUTY_CYCLE   = 10  # percent during night mode
+NIGHT_OFF_START  = 22   # hour when LEDs turn off
+NIGHT_OFF_END    = 7    # hour when LEDs turn back on
+DIM_DUTY_CYCLE   = 10   # percent during dawn/dusk
+TRANSITION_MINS  = 60   # minutes of gradual fade around sunrise/sunset
 
-_night_mode_override = None  # None=auto, True=force night, False=force day
+TIMEZONE = ZoneInfo("America/New_York")
+LOCATION = LocationInfo("South Riding", "USA", "America/New_York", 38.9318, -77.5103)
+
+_night_mode_override = None   # None=auto, True=force dim, False=force bright
+_night_off_override  = False  # True=bypass the 10PM–7AM off window
 _led_pwm = {}
+_sun_cache = {'date': None, 'sunrise': None, 'sunset': None}
 
 _test_mode        = False
 _test_leds        = {'green': False, 'yellow': False, 'red': False, 'blue': False, 'white': False}
@@ -72,17 +82,53 @@ STATE_FILE = '/home/pat0222/dog-door/.door_state'
 BEEP_FILE  = '/home/pat0222/dog-door/.beep_request'
 
 
-def is_night_mode():
+def _get_sun_times():
+    today = datetime.now(tz=TIMEZONE).date()
+    if _sun_cache['date'] != today:
+        s = astral_sun(LOCATION.observer, date=today, tzinfo=TIMEZONE)
+        _sun_cache['date']    = today
+        _sun_cache['sunrise'] = s['sunrise']
+        _sun_cache['sunset']  = s['sunset']
+    return _sun_cache['sunrise'], _sun_cache['sunset']
+
+
+def get_led_duty_cycle():
     with _firebase_lock:
-        override = _night_mode_override
-    if override is not None:
-        return override
-    h = time.localtime().tm_hour
-    return h >= NIGHT_START_HOUR or h < NIGHT_END_HOUR
+        night_off_bypass    = _night_off_override
+        brightness_override = _night_mode_override
+
+    now = datetime.now(tz=TIMEZONE)
+
+    # 10 PM – 7 AM: LEDs off unless bypassed
+    if (now.hour >= NIGHT_OFF_START or now.hour < NIGHT_OFF_END) and not night_off_bypass:
+        return 0
+
+    # Manual brightness override from app (Night Mode segmented control)
+    if brightness_override is True:
+        return DIM_DUTY_CYCLE
+    if brightness_override is False:
+        return 100
+
+    # Auto: smooth fade around sunrise/sunset
+    sunrise, sunset = _get_sun_times()
+    half = timedelta(minutes=TRANSITION_MINS // 2)
+
+    if sunrise - half <= now <= sunrise + half:
+        t = (now - (sunrise - half)).total_seconds() / (TRANSITION_MINS * 60)
+        return int(DIM_DUTY_CYCLE + (100 - DIM_DUTY_CYCLE) * max(0.0, min(1.0, t)))
+
+    if sunset - half <= now <= sunset + half:
+        t = (now - (sunset - half)).total_seconds() / (TRANSITION_MINS * 60)
+        return int(100 - (100 - DIM_DUTY_CYCLE) * max(0.0, min(1.0, t)))
+
+    if sunrise + half < now < sunset - half:
+        return 100  # full daytime
+
+    return DIM_DUTY_CYCLE  # dawn/dusk outside transition window
 
 
 def led_on(pin):
-    _led_pwm[pin].ChangeDutyCycle(DIM_DUTY_CYCLE if is_night_mode() else 100)
+    _led_pwm[pin].ChangeDutyCycle(get_led_duty_cycle())
 
 
 def led_off(pin):
@@ -156,6 +202,11 @@ def init_firebase():
                 data = event.data
                 _night_mode_override = None if data is None else bool(data)
 
+        def on_night_off_override(event):
+            global _night_off_override
+            with _firebase_lock:
+                _night_off_override = bool(event.data) if event.data is not None else False
+
         db.reference('owners/owner1').listen(make_owner_listener(0))
         db.reference('owners/owner2').listen(make_owner_listener(1))
         db.reference('command').listen(on_command)
@@ -163,6 +214,7 @@ def init_firebase():
         db.reference('test/leds').listen(on_test_leds)
         db.reference('test/switch').listen(on_test_switch)
         db.reference('settings/night_mode_override').listen(on_night_mode)
+        db.reference('settings/night_off_override').listen(on_night_off_override)
         _firebase_connected = True
         print("Firebase connected")
     except Exception as e:
@@ -554,12 +606,12 @@ def main():
                     print("Manual switch — opening door")
                     if open_door_manual():
                         write_beep_request('open')
-                        send_push_notification("Puppy Play Time", "Door opened manually.")
+                        send_push_notification("Tail Gate RG", "Door opened manually.")
                 elif sw_close and not prev_sw_close and door_state != CLOSED and not closing:
                     print("Manual switch — closing door")
                     if close_door_manual():
                         write_beep_request('close')
-                        send_push_notification("Puppy Play Time", "Door closed manually.")
+                        send_push_notification("Tail Gate RG", "Door closed manually.")
 
             prev_sw_open  = sw_open
             prev_sw_close = sw_close
@@ -588,12 +640,12 @@ def main():
                     print("App command — opening door")
                     if open_door():
                         write_beep_request('open')
-                        send_push_notification("Puppy Play Time", "Door opened via app.")
+                        send_push_notification("Tail Gate RG", "Door opened via app.")
                 elif cmd == 'close' and door_state != CLOSED:
                     print("App command — closing door")
                     if close_door():
                         write_beep_request('close')
-                        send_push_notification("Puppy Play Time", "Door closed via app.")
+                        send_push_notification("Tail Gate RG", "Door closed via app.")
 
                 # --- RFID open/close triggers (reserved for UHF RFID upgrade) ---
 
