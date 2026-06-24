@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run this on the Pi after reflashing. Assumes these files are in /home/pat0222/:
+# Run by deploy-to-pi.sh via ssh. Assumes these files are in /home/pat0222/:
 #   door_controller.py, peripheral_controller.py, dog-door.service, peripheral-controller.service, firebase-key.json
 set -ex
 
@@ -23,9 +23,9 @@ sudo mv /home/pat0222/peripheral-controller.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable NetworkManager-wait-online.service
 sudo systemctl enable peripheral-controller
-sudo systemctl start peripheral-controller
+sudo systemctl restart peripheral-controller
 sudo systemctl enable dog-door
-sudo systemctl start dog-door
+sudo systemctl restart dog-door
 
 echo "==> Configuring passwordless sudo for reboot..."
 echo 'pat0222 ALL=(ALL) NOPASSWD: /sbin/reboot' | sudo tee /etc/sudoers.d/dog-door-reboot
