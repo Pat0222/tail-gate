@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Platform, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, Switch, TouchableOpacity, SafeAreaView, ActivityIndicator, Platform, ScrollView, useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ref, onValue, set } from 'firebase/database';
 import { db } from './firebase';
@@ -22,6 +22,33 @@ const LED_COLORS = {
 };
 
 const INIT_LEDS = { green: false, yellow: false, red: false, blue: false, white: false };
+
+const Colors = {
+  light: {
+    background:    '#F2F2F7',
+    card:          '#FFFFFF',
+    text:          '#000000',
+    textSecondary: '#8E8E93',
+    divider:       '#E5E5EA',
+    separator:     '#C6C6C8',
+    inactive:      '#C7C7CC',
+    segmentBg:     '#E5E5EA',
+    segmentActive: '#FFFFFF',
+    switchOff:     '#E5E5EA',
+  },
+  dark: {
+    background:    '#000000',
+    card:          '#1C1C1E',
+    text:          '#FFFFFF',
+    textSecondary: '#8E8E93',
+    divider:       '#38383A',
+    separator:     '#38383A',
+    inactive:      '#636366',
+    segmentBg:     '#2C2C2E',
+    segmentActive: '#48484A',
+    switchOff:     '#39393D',
+  },
+};
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -55,6 +82,9 @@ async function registerForPushNotifications() {
 }
 
 export default function App() {
+  const scheme = useColorScheme();
+  const C = Colors[scheme ?? 'light'];
+
   const [screen, setScreen]     = useState('home');
   const [doorState, setDoorState] = useState('unknown');
   const [openPct, setOpenPct]   = useState(0);
@@ -158,33 +188,33 @@ export default function App() {
   // Settings screen
   if (screen === 'settings') {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: C.background }]}>
         <View style={styles.navHeader}>
           <TouchableOpacity onPress={() => setScreen('home')} style={styles.backButton}>
             <Ionicons name="chevron-back" size={24} color="#007AFF" />
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
-          <Text style={styles.navTitle}>Settings</Text>
+          <Text style={[styles.navTitle, { color: C.text }]}>Settings</Text>
           <View style={styles.navSpacer} />
         </View>
-        <View style={styles.navSeparator} />
+        <View style={[styles.navSeparator, { backgroundColor: C.separator }]} />
 
         <Text style={styles.sectionHeader}>LED Brightness</Text>
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: C.card }]}>
           <View style={styles.settingsRowLeft}>
             <View style={[styles.settingsIconBg, { backgroundColor: '#FF9500' }]}>
               <Ionicons name="moon-outline" size={16} color="#fff" />
             </View>
-            <Text style={styles.settingsRowText}>Night Mode</Text>
+            <Text style={[styles.settingsRowText, { color: C.text }]}>Night Mode</Text>
           </View>
-          <View style={styles.segmentedControl}>
+          <View style={[styles.segmentedControl, { backgroundColor: C.segmentBg }]}>
             {[['auto', 'Auto'], ['on', 'Night'], ['off', 'Day']].map(([value, label]) => (
               <TouchableOpacity
                 key={value}
-                style={[styles.segment, nightMode === value && styles.segmentActive]}
+                style={[styles.segment, nightMode === value && [styles.segmentActive, { backgroundColor: C.segmentActive }]]}
                 onPress={() => setNightMode(value)}
               >
-                <Text style={[styles.segmentText, nightMode === value && styles.segmentTextActive]}>
+                <Text style={[styles.segmentText, nightMode === value && [styles.segmentTextActive, { color: C.text }]]}>
                   {label}
                 </Text>
               </TouchableOpacity>
@@ -198,15 +228,15 @@ export default function App() {
         </View>
 
         <Text style={styles.sectionHeader}>Diagnostic Tools</Text>
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: C.card }]}>
           <TouchableOpacity style={styles.settingsRow} onPress={enterTesting}>
             <View style={styles.settingsRowLeft}>
               <View style={[styles.settingsIconBg, { backgroundColor: '#5856D6' }]}>
                 <Ionicons name="construct-outline" size={16} color="#fff" />
               </View>
-              <Text style={styles.settingsRowText}>Testing</Text>
+              <Text style={[styles.settingsRowText, { color: C.text }]}>Testing</Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color="#C7C7CC" />
+            <Ionicons name="chevron-forward" size={18} color={C.inactive} />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -216,41 +246,41 @@ export default function App() {
   // Testing screen
   if (screen === 'testing') {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: C.background }]}>
         <View style={styles.navHeader}>
           <TouchableOpacity onPress={exitTesting} style={styles.backButton}>
             <Ionicons name="chevron-back" size={24} color="#007AFF" />
             <Text style={styles.backText}>Settings</Text>
           </TouchableOpacity>
-          <Text style={styles.navTitle}>Testing</Text>
+          <Text style={[styles.navTitle, { color: C.text }]}>Testing</Text>
           <View style={styles.navSpacer} />
         </View>
-        <View style={styles.navSeparator} />
+        <View style={[styles.navSeparator, { backgroundColor: C.separator }]} />
 
         <ScrollView showsVerticalScrollIndicator={false}>
 
           <Text style={styles.sectionHeader}>LED Control</Text>
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: C.card }]}>
             <View style={styles.allLedsRow}>
-              <Text style={styles.allLedsLabel}>All LEDs</Text>
+              <Text style={[styles.allLedsLabel, { color: C.text }]}>All LEDs</Text>
               <Switch
                 value={allOn}
                 onValueChange={toggleAll}
-                trackColor={{ false: '#E5E5EA', true: '#8E8E93' }}
+                trackColor={{ false: C.switchOff, true: C.textSecondary }}
               />
             </View>
             {Object.keys(INIT_LEDS).map(color => (
-              <View key={color} style={[styles.ownerRow, styles.ownerRowDivider]}>
+              <View key={color} style={[styles.ownerRow, styles.ownerRowDivider, { borderTopColor: C.divider }]}>
                 <View style={styles.ledLabelRow}>
                   <View style={[styles.ledDot, {
-                    backgroundColor: testLeds[color] ? LED_COLORS[color] : '#E5E5EA',
+                    backgroundColor: testLeds[color] ? LED_COLORS[color] : C.inactive,
                   }]} />
-                  <Text style={styles.ownerLabel}>{color.charAt(0).toUpperCase() + color.slice(1)}</Text>
+                  <Text style={[styles.ownerLabel, { color: C.text }]}>{color.charAt(0).toUpperCase() + color.slice(1)}</Text>
                 </View>
                 <Switch
                   value={testLeds[color]}
                   onValueChange={v => toggleLed(color, v)}
-                  trackColor={{ false: '#E5E5EA', true: LED_COLORS[color] }}
+                  trackColor={{ false: C.switchOff, true: LED_COLORS[color] }}
                 />
               </View>
             ))}
@@ -258,21 +288,21 @@ export default function App() {
 
           <Text style={styles.sectionHeader}>Switch Signal</Text>
           <Text style={styles.sectionDesc}>Flip the manual switch to test without moving the actuator.</Text>
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: C.card }]}>
             <View style={styles.ownerRow}>
-              <Text style={styles.ownerLabel}>Open</Text>
+              <Text style={[styles.ownerLabel, { color: C.text }]}>Open</Text>
               <View style={styles.signalStatus}>
-                <View style={[styles.signalDot, { backgroundColor: testSwitchState.open ? '#34C759' : '#C7C7CC' }]} />
-                <Text style={[styles.signalLabel, { color: testSwitchState.open ? '#34C759' : '#C7C7CC' }]}>
+                <View style={[styles.signalDot, { backgroundColor: testSwitchState.open ? '#34C759' : C.inactive }]} />
+                <Text style={[styles.signalLabel, { color: testSwitchState.open ? '#34C759' : C.inactive }]}>
                   {testSwitchState.open ? 'Active' : 'None'}
                 </Text>
               </View>
             </View>
-            <View style={[styles.ownerRow, styles.ownerRowDivider]}>
-              <Text style={styles.ownerLabel}>Close</Text>
+            <View style={[styles.ownerRow, styles.ownerRowDivider, { borderTopColor: C.divider }]}>
+              <Text style={[styles.ownerLabel, { color: C.text }]}>Close</Text>
               <View style={styles.signalStatus}>
-                <View style={[styles.signalDot, { backgroundColor: testSwitchState.close ? '#FF3B30' : '#C7C7CC' }]} />
-                <Text style={[styles.signalLabel, { color: testSwitchState.close ? '#FF3B30' : '#C7C7CC' }]}>
+                <View style={[styles.signalDot, { backgroundColor: testSwitchState.close ? '#FF3B30' : C.inactive }]} />
+                <Text style={[styles.signalLabel, { color: testSwitchState.close ? '#FF3B30' : C.inactive }]}>
                   {testSwitchState.close ? 'Active' : 'None'}
                 </Text>
               </View>
@@ -281,7 +311,7 @@ export default function App() {
 
           <Text style={styles.sectionHeader}>Simulate Switch</Text>
           <Text style={styles.sectionDesc}>Moves the actuator — make sure the L298N is connected.</Text>
-          <View style={[styles.card, { marginBottom: 32 }]}>
+          <View style={[styles.card, { backgroundColor: C.card, marginBottom: 32 }]}>
             <TouchableOpacity
               style={[styles.button, styles.openButton]}
               onPress={() => simulateSwitch('open')}
@@ -303,43 +333,43 @@ export default function App() {
 
   // Home screen
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: C.background }]}>
 
       <View style={styles.titleRow}>
-        <Text style={styles.title}>Puppy Play Time</Text>
+        <Text style={[styles.title, { color: C.text }]}>Puppy Play Time</Text>
         <TouchableOpacity onPress={() => setScreen('settings')}>
-          <Ionicons name="settings-outline" size={28} color="#8E8E93" />
+          <Ionicons name="settings-outline" size={28} color={C.textSecondary} />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: C.card }]}>
         <Text style={styles.cardTitle}>Door Status</Text>
         <View style={styles.statusRow}>
           {isMoving
             ? <ActivityIndicator size="small" color={statusColor} />
             : <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
           }
-          <Text style={[styles.statusText, isMoving && { color: statusColor }]}>{statusLabel}</Text>
+          <Text style={[styles.statusText, { color: C.text }, isMoving && { color: statusColor }]}>{statusLabel}</Text>
           <Text style={styles.pctText}>{Math.max(0, Math.min(100, openPct))}% open</Text>
         </View>
       </View>
 
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: C.card }]}>
         <Text style={styles.cardTitle}>Owner Availability</Text>
         <View style={styles.ownerRow}>
-          <Text style={styles.ownerLabel}>Rita</Text>
+          <Text style={[styles.ownerLabel, { color: C.text }]}>Rita</Text>
           <Switch
             value={owner1}
             onValueChange={v => setOwnerAvailable('owner1', v)}
-            trackColor={{ true: '#34C759' }}
+            trackColor={{ false: C.switchOff, true: '#34C759' }}
           />
         </View>
-        <View style={[styles.ownerRow, styles.ownerRowDivider]}>
-          <Text style={styles.ownerLabel}>Ginger</Text>
+        <View style={[styles.ownerRow, styles.ownerRowDivider, { borderTopColor: C.divider }]}>
+          <Text style={[styles.ownerLabel, { color: C.text }]}>Ginger</Text>
           <Switch
             value={owner2}
             onValueChange={v => setOwnerAvailable('owner2', v)}
-            trackColor={{ true: '#34C759' }}
+            trackColor={{ false: C.switchOff, true: '#34C759' }}
           />
         </View>
         {!bothAvailable && (
@@ -347,7 +377,7 @@ export default function App() {
         )}
       </View>
 
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: C.card }]}>
         <Text style={styles.cardTitle}>Manual Control</Text>
         <TouchableOpacity
           style={[styles.button, styles.openButton, !bothAvailable && styles.buttonDisabled]}
@@ -377,7 +407,6 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F2F2F7',
     padding: 16,
   },
   titleRow: {
@@ -390,7 +419,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 34,
     fontWeight: '700',
-    color: '#000',
   },
   navHeader: {
     flexDirection: 'row',
@@ -401,7 +429,6 @@ const styles = StyleSheet.create({
   },
   navSeparator: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: '#C6C6C8',
     marginHorizontal: -16,
     marginBottom: 24,
   },
@@ -417,7 +444,6 @@ const styles = StyleSheet.create({
   navTitle: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#000',
   },
   navSpacer: {
     minWidth: 80,
@@ -440,7 +466,6 @@ const styles = StyleSheet.create({
     marginTop: -2,
   },
   card: {
-    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
@@ -472,7 +497,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flex: 1,
     textTransform: 'capitalize',
-    color: '#000',
   },
   pctText: {
     fontSize: 16,
@@ -485,13 +509,11 @@ const styles = StyleSheet.create({
   },
   ownerRowDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#E5E5EA',
     marginTop: 12,
     paddingTop: 12,
   },
   ownerLabel: {
     fontSize: 17,
-    color: '#000',
   },
   allLedsRow: {
     flexDirection: 'row',
@@ -502,7 +524,6 @@ const styles = StyleSheet.create({
   allLedsLabel: {
     fontSize: 17,
     fontWeight: '600',
-    color: '#000',
   },
   ledLabelRow: {
     flexDirection: 'row',
@@ -554,11 +575,9 @@ const styles = StyleSheet.create({
   },
   settingsRowText: {
     fontSize: 17,
-    color: '#000',
   },
   segmentedControl: {
     flexDirection: 'row',
-    backgroundColor: '#E5E5EA',
     borderRadius: 8,
     padding: 2,
     marginTop: 12,
@@ -571,7 +590,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   segmentActive: {
-    backgroundColor: '#fff',
     shadowColor: '#000',
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -583,7 +601,6 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
   },
   segmentTextActive: {
-    color: '#000',
     fontWeight: '600',
   },
   button: {
