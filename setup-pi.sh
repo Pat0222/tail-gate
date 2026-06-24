@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run this on the Pi after reflashing. Assumes these files are in /home/pat0222/:
-#   door_controller.py, dog-door.service, firebase-key.json
+#   door_controller.py, peripheral_controller.py, dog-door.service, peripheral-controller.service, firebase-key.json
 set -ex
 
 echo "==> Installing build tools..."
@@ -10,15 +10,20 @@ sudo apt-get install -y python3-dev gcc fonts-dejavu-core
 echo "==> Setting up dog-door directory..."
 mkdir -p /home/pat0222/dog-door
 [ -f /home/pat0222/door_controller.py ] && mv /home/pat0222/door_controller.py /home/pat0222/dog-door/
+[ -f /home/pat0222/peripheral_controller.py ] && mv /home/pat0222/peripheral_controller.py /home/pat0222/dog-door/
 [ -f /home/pat0222/firebase-key.json ] && mv /home/pat0222/firebase-key.json /home/pat0222/dog-door/
 
 echo "==> Setting up Python venv..."
 python3 -m venv /home/pat0222/dog-door/venv
 /home/pat0222/dog-door/venv/bin/pip install -v RPi.GPIO luma.oled firebase-admin
 
-echo "==> Installing systemd service..."
+echo "==> Installing systemd services..."
 sudo mv /home/pat0222/dog-door.service /etc/systemd/system/
+sudo mv /home/pat0222/peripheral-controller.service /etc/systemd/system/
 sudo systemctl daemon-reload
+sudo systemctl enable NetworkManager-wait-online.service
+sudo systemctl enable peripheral-controller
+sudo systemctl start peripheral-controller
 sudo systemctl enable dog-door
 sudo systemctl start dog-door
 

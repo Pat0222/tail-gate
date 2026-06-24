@@ -10,7 +10,9 @@ echo "Using Firebase key: $FIREBASE_KEY"
 
 scp "$FIREBASE_KEY" \
     "$(dirname "$0")/door_controller.py" \
+    "$(dirname "$0")/peripheral_controller.py" \
     "$(dirname "$0")/dog-door.service" \
+    "$(dirname "$0")/peripheral-controller.service" \
     "$(dirname "$0")/setup-pi.sh" \
     pat0222@dogdoorpi.local:/home/pat0222/
 
