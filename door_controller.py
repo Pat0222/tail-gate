@@ -267,11 +267,14 @@ def load_door_state():
 
 
 def save_door_state(state):
-    with open(STATE_FILE, 'w') as f:
-        if state in (PARTIALLY_OPEN, PARTIALLY_CLOSED):
-            f.write(f"{state} {actuator_pos:.3f}")
-        else:
-            f.write(state)
+    try:
+        with open(STATE_FILE, 'w') as f:
+            if state in (PARTIALLY_OPEN, PARTIALLY_CLOSED):
+                f.write(f"{state} {actuator_pos:.3f}")
+            else:
+                f.write(state)
+    except OSError as e:
+        print(f"Failed to save door state: {e}")
 
 
 def set_state(state):

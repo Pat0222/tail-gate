@@ -2,6 +2,7 @@ import RPi.GPIO as GPIO
 import math
 import time
 import os
+import subprocess
 import threading
 import signal
 
@@ -90,8 +91,8 @@ def poll_beep_request():
             beep(BEEP_STUCK)
     except FileNotFoundError:
         pass
-    except Exception:
-        pass
+    except OSError as e:
+        print(f"Beep request error: {e}")
 
 
 def _draw_flame_lick(draw, bx, by, angle, length, width):
@@ -484,7 +485,7 @@ def main():
                     print("Both buttons held — shutting down")
                     beep(BEEP_SHUTDOWN)
                     if oled_shutdown_countdown():
-                        os.system("sudo shutdown -h now")
+                        subprocess.run(["sudo", "shutdown", "-h", "now"])
                     else:
                         both_hold_start = None
             else:
@@ -505,7 +506,7 @@ def main():
                             except Exception:
                                 pass
                         time.sleep(0.3)
-                        os.system("sudo systemctl restart dog-door")
+                        subprocess.run(["sudo", "systemctl", "restart", "dog-door"], check=True)
                         restart_press_start = None
                 else:
                     restart_press_start = None
@@ -517,7 +518,7 @@ def main():
                         print("Reboot button held — rebooting Pi")
                         beep(BEEP_REBOOT)
                         if oled_reboot_countdown():
-                            os.system("sudo reboot")
+                            subprocess.run(["sudo", "reboot"])
                         else:
                             reboot_press_start = None
                 else:
