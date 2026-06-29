@@ -100,6 +100,8 @@ export default function App() {
   const [testSwitchState, setTestSwitchState] = useState({ open: false, close: false });
   const [nightMode, setNightModeState]      = useState('auto');
   const [nightOffOverride, setNightOffOverride] = useState(false);
+  const [actuatorOpenSecs, setActuatorOpenSecs]   = useState(null);
+  const [actuatorCloseSecs, setActuatorCloseSecs] = useState(null);
 
   useEffect(() => {
     const unsubDoor = onValue(ref(db, 'door'), snapshot => {
@@ -128,6 +130,14 @@ export default function App() {
       setNightOffOverride(snapshot.val() === true);
     });
 
+    const unsubActuatorOpen = onValue(ref(db, 'settings/actuator_open_secs'), snapshot => {
+      setActuatorOpenSecs(snapshot.val());
+    });
+
+    const unsubActuatorClose = onValue(ref(db, 'settings/actuator_close_secs'), snapshot => {
+      setActuatorCloseSecs(snapshot.val());
+    });
+
     registerForPushNotifications().then(token => {
       if (token) {
         const key = token.replace(/[[\]]/g, '');
@@ -135,7 +145,7 @@ export default function App() {
       }
     });
 
-    return () => { unsubDoor(); unsubOwners(); unsubNightMode(); unsubNightOff(); };
+    return () => { unsubDoor(); unsubOwners(); unsubNightMode(); unsubNightOff(); unsubActuatorOpen(); unsubActuatorClose(); };
   }, []);
 
   useEffect(() => {
@@ -193,6 +203,14 @@ export default function App() {
     set(ref(db, 'settings/night_off_override'), value || null);
   };
 
+  const adjustActuator = (which, delta) => {
+    const current = which === 'open' ? (actuatorOpenSecs ?? 5.59) : (actuatorCloseSecs ?? 5.84);
+    const next = Math.max(1, Math.min(30, Math.round((current + delta) * 4) / 4));
+    if (which === 'open') setActuatorOpenSecs(next);
+    else setActuatorCloseSecs(next);
+    set(ref(db, `settings/actuator_${which}_secs`), next);
+  };
+
   const isMoving      = doorState === 'partially_open' || doorState === 'partially_closed';
   const statusColor   = DOOR_COLORS[doorState] ?? '#8E8E93';
   const statusLabel   = isMoving
@@ -214,6 +232,8 @@ export default function App() {
           <View style={styles.navSpacer} />
         </View>
         <View style={[styles.navSeparator, { backgroundColor: C.separator }]} />
+
+        <ScrollView showsVerticalScrollIndicator={false}>
 
         <Text style={styles.sectionHeader}>LED Brightness</Text>
         <View style={[styles.card, { backgroundColor: C.card }]}>
@@ -259,8 +279,36 @@ export default function App() {
           </View>
         </View>
 
-        <Text style={styles.sectionHeader}>Diagnostic Tools</Text>
+        <Text style={styles.sectionHeader}>Actuator Timing</Text>
         <View style={[styles.card, { backgroundColor: C.card }]}>
+          <View style={styles.ownerRow}>
+            <Text style={[styles.ownerLabel, { color: C.text }]}>Open</Text>
+            <View style={styles.stepper}>
+              <TouchableOpacity style={styles.stepperBtn} onPress={() => adjustActuator('open', -0.25)}>
+                <Ionicons name="remove-circle-outline" size={28} color="#007AFF" />
+              </TouchableOpacity>
+              <Text style={[styles.stepperValue, { color: C.text }]}>{(actuatorOpenSecs ?? 5.59).toFixed(2)} s</Text>
+              <TouchableOpacity style={styles.stepperBtn} onPress={() => adjustActuator('open', 0.25)}>
+                <Ionicons name="add-circle-outline" size={28} color="#007AFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+          <View style={[styles.ownerRow, styles.ownerRowDivider, { borderTopColor: C.divider }]}>
+            <Text style={[styles.ownerLabel, { color: C.text }]}>Close</Text>
+            <View style={styles.stepper}>
+              <TouchableOpacity style={styles.stepperBtn} onPress={() => adjustActuator('close', -0.25)}>
+                <Ionicons name="remove-circle-outline" size={28} color="#007AFF" />
+              </TouchableOpacity>
+              <Text style={[styles.stepperValue, { color: C.text }]}>{(actuatorCloseSecs ?? 5.84).toFixed(2)} s</Text>
+              <TouchableOpacity style={styles.stepperBtn} onPress={() => adjustActuator('close', 0.25)}>
+                <Ionicons name="add-circle-outline" size={28} color="#007AFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        <Text style={styles.sectionHeader}>Diagnostic Tools</Text>
+        <View style={[styles.card, { backgroundColor: C.card, marginBottom: 32 }]}>
           <TouchableOpacity style={styles.settingsRow} onPress={enterTesting}>
             <View style={styles.settingsRowLeft}>
               <View style={[styles.settingsIconBg, { backgroundColor: '#5856D6' }]}>
@@ -271,6 +319,8 @@ export default function App() {
             <Ionicons name="chevron-forward" size={18} color={C.inactive} />
           </TouchableOpacity>
         </View>
+
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -634,6 +684,20 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: {
     fontWeight: '600',
+  },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  stepperBtn: {
+    padding: 4,
+  },
+  stepperValue: {
+    fontSize: 17,
+    fontVariant: ['tabular-nums'],
+    minWidth: 64,
+    textAlign: 'center',
   },
   button: {
     borderRadius: 10,

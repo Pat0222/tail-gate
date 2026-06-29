@@ -57,6 +57,8 @@ _firebase_lock   = threading.RLock()
 _owner_available = [True, True]  # default True so door works if Firebase is unreachable
 _firebase_command = None
 _stop_requested  = False
+_actuator_open_secs  = ACTUATOR_OPEN_SECS
+_actuator_close_secs = ACTUATOR_CLOSE_SECS
 _firebase_db     = None
 _firebase_connected = False
 _startup_time    = time.monotonic()
@@ -209,6 +211,30 @@ def init_firebase():
             with _firebase_lock:
                 _night_off_override = bool(event.data) if event.data is not None else False
 
+        def on_actuator_open_secs(event):
+            global _actuator_open_secs
+            if event.data is not None:
+                try:
+                    val = float(event.data)
+                    if 1.0 <= val <= 30.0:
+                        with _firebase_lock:
+                            _actuator_open_secs = val
+                        print(f"Actuator open secs: {val}")
+                except (ValueError, TypeError):
+                    pass
+
+        def on_actuator_close_secs(event):
+            global _actuator_close_secs
+            if event.data is not None:
+                try:
+                    val = float(event.data)
+                    if 1.0 <= val <= 30.0:
+                        with _firebase_lock:
+                            _actuator_close_secs = val
+                        print(f"Actuator close secs: {val}")
+                except (ValueError, TypeError):
+                    pass
+
         db.reference('owners/owner1').listen(make_owner_listener(0))
         db.reference('owners/owner2').listen(make_owner_listener(1))
         db.reference('command').listen(on_command)
@@ -217,6 +243,8 @@ def init_firebase():
         db.reference('test/switch').listen(on_test_switch)
         db.reference('settings/night_mode_override').listen(on_night_mode)
         db.reference('settings/night_off_override').listen(on_night_off_override)
+        db.reference('settings/actuator_open_secs').listen(on_actuator_open_secs)
+        db.reference('settings/actuator_close_secs').listen(on_actuator_close_secs)
         _firebase_connected = True
         print("Firebase connected")
     except Exception as e:
@@ -425,9 +453,11 @@ def update_leds(countdown_active, stuck_alert):
 
 def open_door():
     global actuator_pos, _stop_requested
+    with _firebase_lock:
+        open_secs = _actuator_open_secs
     set_state(PARTIALLY_OPEN)
     retract()
-    travel_secs = actuator_pos * ACTUATOR_OPEN_SECS
+    travel_secs = actuator_pos * open_secs
     start = time.monotonic()
     last_push = start
     while time.monotonic() - start < travel_secs:
@@ -435,12 +465,12 @@ def open_door():
         now = time.monotonic()
         update_leds(False, False)
         if now - last_push >= 0.5:
-            push_progress(max(0.0, actuator_pos - (now - start) / ACTUATOR_OPEN_SECS))
+            push_progress(max(0.0, actuator_pos - (now - start) / open_secs))
             last_push = now
         if _stop_requested:
             stop()
             elapsed = time.monotonic() - start
-            actuator_pos = max(0.0, actuator_pos - elapsed / ACTUATOR_OPEN_SECS)
+            actuator_pos = max(0.0, actuator_pos - elapsed / open_secs)
             set_state(OPEN if actuator_pos <= 0.0 else PARTIALLY_OPEN)
             _stop_requested = False
             print("Door open interrupted")
@@ -459,11 +489,13 @@ def open_door():
 
 def close_door():
     global closing, actuator_pos, _stop_requested
+    with _firebase_lock:
+        close_secs = _actuator_close_secs
     closing = True
     set_state(PARTIALLY_CLOSED)
     print("Closing in progress...")
     extend()
-    travel_secs = (1.0 - actuator_pos) * ACTUATOR_CLOSE_SECS
+    travel_secs = (1.0 - actuator_pos) * close_secs
     start = time.monotonic()
     last_push = start
     while time.monotonic() - start < travel_secs:
@@ -471,12 +503,12 @@ def close_door():
         now = time.monotonic()
         update_leds(False, False)
         if now - last_push >= 0.5:
-            push_progress(min(1.0, actuator_pos + (now - start) / ACTUATOR_CLOSE_SECS))
+            push_progress(min(1.0, actuator_pos + (now - start) / close_secs))
             last_push = now
         if _stop_requested:
             stop()
             elapsed = time.monotonic() - start
-            actuator_pos = min(1.0, actuator_pos + elapsed / ACTUATOR_CLOSE_SECS)
+            actuator_pos = min(1.0, actuator_pos + elapsed / close_secs)
             set_state(CLOSED if actuator_pos >= 1.0 else PARTIALLY_CLOSED)
             closing = False
             _stop_requested = False
@@ -498,11 +530,13 @@ def close_door():
 
 def open_door_manual():
     global closing, actuator_pos
+    with _firebase_lock:
+        open_secs = _actuator_open_secs
     closing = True
     set_state(PARTIALLY_OPEN)
     print("Manual open in progress...")
     retract()
-    travel_secs = actuator_pos * ACTUATOR_OPEN_SECS
+    travel_secs = actuator_pos * open_secs
     start = time.monotonic()
     last_push = start
     while time.monotonic() - start < travel_secs:
@@ -510,11 +544,11 @@ def open_door_manual():
         now = time.monotonic()
         update_leds(False, False)
         if now - last_push >= 0.5:
-            push_progress(max(0.0, actuator_pos - (now - start) / ACTUATOR_OPEN_SECS))
+            push_progress(max(0.0, actuator_pos - (now - start) / open_secs))
             last_push = now
         if not GPIO.input(SW_OPEN):
             stop()
-            actuator_pos = max(0.0, actuator_pos - (time.monotonic() - start) / ACTUATOR_OPEN_SECS)
+            actuator_pos = max(0.0, actuator_pos - (time.monotonic() - start) / open_secs)
             if GPIO.input(SW_CLOSE):
                 print("Manual switch reversed — closing")
                 time.sleep(0.1)
@@ -539,11 +573,13 @@ def open_door_manual():
 
 def close_door_manual():
     global closing, actuator_pos
+    with _firebase_lock:
+        close_secs = _actuator_close_secs
     closing = True
     set_state(PARTIALLY_CLOSED)
     print("Manual close in progress...")
     extend()
-    travel_secs = (1.0 - actuator_pos) * ACTUATOR_CLOSE_SECS
+    travel_secs = (1.0 - actuator_pos) * close_secs
     start = time.monotonic()
     last_push = start
     while time.monotonic() - start < travel_secs:
@@ -551,11 +587,11 @@ def close_door_manual():
         now = time.monotonic()
         update_leds(False, False)
         if now - last_push >= 0.5:
-            push_progress(min(1.0, actuator_pos + (now - start) / ACTUATOR_CLOSE_SECS))
+            push_progress(min(1.0, actuator_pos + (now - start) / close_secs))
             last_push = now
         if not GPIO.input(SW_CLOSE):
             stop()
-            actuator_pos = min(1.0, actuator_pos + (time.monotonic() - start) / ACTUATOR_CLOSE_SECS)
+            actuator_pos = min(1.0, actuator_pos + (time.monotonic() - start) / close_secs)
             if GPIO.input(SW_OPEN):
                 print("Manual switch reversed — opening")
                 time.sleep(0.1)
