@@ -35,7 +35,8 @@ _TEST_LED_PINS = {'green': 20, 'yellow': 12, 'red': 16, 'blue': 13, 'white': 26}
 
 # Timing
 CLOSE_DELAY_SECS     = 10
-ACTUATOR_TRAVEL_SECS = 7.84
+ACTUATOR_OPEN_SECS  = 7.84  # time to fully retract (open) — tune after install
+ACTUATOR_CLOSE_SECS = 7.84  # time to fully extend (close) — tune after install
 STATUS_INTERVAL      = 2
 STUCK_ALERT_SECS     = 900   # 15 minutes in a partial state triggers flashing LEDs
 
@@ -425,7 +426,7 @@ def open_door():
     global actuator_pos, _stop_requested
     set_state(PARTIALLY_OPEN)
     retract()
-    travel_secs = actuator_pos * ACTUATOR_TRAVEL_SECS
+    travel_secs = actuator_pos * ACTUATOR_OPEN_SECS
     start = time.monotonic()
     last_push = start
     while time.monotonic() - start < travel_secs:
@@ -433,12 +434,12 @@ def open_door():
         now = time.monotonic()
         update_leds(False, False)
         if now - last_push >= 0.5:
-            push_progress(max(0.0, actuator_pos - (now - start) / ACTUATOR_TRAVEL_SECS))
+            push_progress(max(0.0, actuator_pos - (now - start) / ACTUATOR_OPEN_SECS))
             last_push = now
         if _stop_requested:
             stop()
             elapsed = time.monotonic() - start
-            actuator_pos = max(0.0, actuator_pos - elapsed / ACTUATOR_TRAVEL_SECS)
+            actuator_pos = max(0.0, actuator_pos - elapsed / ACTUATOR_OPEN_SECS)
             set_state(OPEN if actuator_pos <= 0.0 else PARTIALLY_OPEN)
             _stop_requested = False
             print("Door open interrupted")
@@ -456,7 +457,7 @@ def close_door():
     set_state(PARTIALLY_CLOSED)
     print("Closing in progress...")
     extend()
-    travel_secs = (1.0 - actuator_pos) * ACTUATOR_TRAVEL_SECS
+    travel_secs = (1.0 - actuator_pos) * ACTUATOR_CLOSE_SECS
     start = time.monotonic()
     last_push = start
     while time.monotonic() - start < travel_secs:
@@ -464,12 +465,12 @@ def close_door():
         now = time.monotonic()
         update_leds(False, False)
         if now - last_push >= 0.5:
-            push_progress(min(1.0, actuator_pos + (now - start) / ACTUATOR_TRAVEL_SECS))
+            push_progress(min(1.0, actuator_pos + (now - start) / ACTUATOR_CLOSE_SECS))
             last_push = now
         if _stop_requested:
             stop()
             elapsed = time.monotonic() - start
-            actuator_pos = min(1.0, actuator_pos + elapsed / ACTUATOR_TRAVEL_SECS)
+            actuator_pos = min(1.0, actuator_pos + elapsed / ACTUATOR_CLOSE_SECS)
             set_state(CLOSED if actuator_pos >= 1.0 else PARTIALLY_CLOSED)
             closing = False
             _stop_requested = False
@@ -490,7 +491,7 @@ def open_door_manual():
     set_state(PARTIALLY_OPEN)
     print("Manual open in progress...")
     retract()
-    travel_secs = actuator_pos * ACTUATOR_TRAVEL_SECS
+    travel_secs = actuator_pos * ACTUATOR_OPEN_SECS
     start = time.monotonic()
     last_push = start
     while time.monotonic() - start < travel_secs:
@@ -498,11 +499,11 @@ def open_door_manual():
         now = time.monotonic()
         update_leds(False, False)
         if now - last_push >= 0.5:
-            push_progress(max(0.0, actuator_pos - (now - start) / ACTUATOR_TRAVEL_SECS))
+            push_progress(max(0.0, actuator_pos - (now - start) / ACTUATOR_OPEN_SECS))
             last_push = now
         if not GPIO.input(SW_OPEN):
             stop()
-            actuator_pos = max(0.0, actuator_pos - (time.monotonic() - start) / ACTUATOR_TRAVEL_SECS)
+            actuator_pos = max(0.0, actuator_pos - (time.monotonic() - start) / ACTUATOR_OPEN_SECS)
             if GPIO.input(SW_CLOSE):
                 print("Manual switch reversed — closing")
                 time.sleep(0.1)
@@ -526,7 +527,7 @@ def close_door_manual():
     set_state(PARTIALLY_CLOSED)
     print("Manual close in progress...")
     extend()
-    travel_secs = (1.0 - actuator_pos) * ACTUATOR_TRAVEL_SECS
+    travel_secs = (1.0 - actuator_pos) * ACTUATOR_CLOSE_SECS
     start = time.monotonic()
     last_push = start
     while time.monotonic() - start < travel_secs:
@@ -534,11 +535,11 @@ def close_door_manual():
         now = time.monotonic()
         update_leds(False, False)
         if now - last_push >= 0.5:
-            push_progress(min(1.0, actuator_pos + (now - start) / ACTUATOR_TRAVEL_SECS))
+            push_progress(min(1.0, actuator_pos + (now - start) / ACTUATOR_CLOSE_SECS))
             last_push = now
         if not GPIO.input(SW_CLOSE):
             stop()
-            actuator_pos = min(1.0, actuator_pos + (time.monotonic() - start) / ACTUATOR_TRAVEL_SECS)
+            actuator_pos = min(1.0, actuator_pos + (time.monotonic() - start) / ACTUATOR_CLOSE_SECS)
             if GPIO.input(SW_OPEN):
                 print("Manual switch reversed — opening")
                 time.sleep(0.1)
