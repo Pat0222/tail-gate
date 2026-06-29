@@ -192,7 +192,7 @@ struct DogDoorWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Puppy Play Time")
+            Text("Tail Gate RG")
                 .font(.caption)
                 .fontWeight(.semibold)
                 .foregroundStyle(.secondary)
@@ -255,7 +255,7 @@ struct DogDoorWidget: Widget {
             DogDoorWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("Puppy Play Time")
+        .configurationDisplayName("Tail Gate RG")
         .description("Control your dog door from your home screen.")
         .supportedFamilies([.systemMedium])
     }
