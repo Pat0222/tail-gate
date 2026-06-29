@@ -1,4 +1,4 @@
-# Puppy Play Time — Automated Dog Door
+# Tail Gate RG — Automated Dog Door
 
 A solar-powered, RFID-triggered dog door controlled by a Raspberry Pi Zero 2 W. Dogs wear RFID collar tags; when both are detected on opposite sides of the fence simultaneously, the door opens automatically. Owners can also control the door remotely via an iOS app or home screen widget.
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Puppy Play Time — Peripheral Controller (buttons, OLED, buzzer)
+Description=Tail Gate RG — Peripheral Controller (buttons, OLED, buzzer)
 After=sysinit.target
 
 [Service]

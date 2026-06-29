@@ -1,5 +1,5 @@
 [Unit]
-Description=Puppy Play Time — Dog Door Controller
+Description=Tail Gate RG — Dog Door Controller
 After=network-online.target
 Wants=network-online.target
 

@@ -12,7 +12,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.pnichols.puppyplaytime",
+      "bundleIdentifier": "com.pnichols.tailgaterg",
       "appleTeamId": "RQ8MK685VR",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
