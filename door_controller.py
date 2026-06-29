@@ -20,8 +20,8 @@ from astral.sun import sun as astral_sun
 IN1      = 17
 IN2      = 27
 ENA      = 22
-SW_OPEN  = 5    # GPIO5 (Pin 29) — manual switch +VE(Load) — retracts actuator, opens door
-SW_CLOSE = 6    # GPIO6 (Pin 31) — manual switch -VE(Load) — extends actuator, closes door
+SW_OPEN  = 6    # GPIO6 (Pin 31) — manual switch, direction reversed in software
+SW_CLOSE = 5    # GPIO5 (Pin 29) — manual switch, direction reversed in software
 
 # LED pins (BCM) — driven via 2N2222 NPN transistors from 12V
 LED_OPEN      = 20  # GPIO20 (Pin 38) — blue
@@ -35,8 +35,9 @@ _TEST_LED_PINS = {'green': 20, 'yellow': 12, 'red': 16, 'blue': 13, 'white': 26}
 
 # Timing
 CLOSE_DELAY_SECS     = 10
-ACTUATOR_OPEN_SECS  = 7.84  # time to fully retract (open) — tune after install
-ACTUATOR_CLOSE_SECS = 7.84  # time to fully extend (close) — tune after install
+ACTUATOR_OPEN_SECS      = 5.59  # time to fully retract (open) — tune after install
+ACTUATOR_CLOSE_SECS     = 5.84  # time to fully extend (close) — tune after install
+ACTUATOR_OVERSHOOT_SECS = 0.5   # extra run after timer to guarantee endpoint is reached
 STATUS_INTERVAL      = 2
 STUCK_ALERT_SECS     = 900   # 15 minutes in a partial state triggers flashing LEDs
 
@@ -169,7 +170,7 @@ def init_firebase():
                     with _firebase_lock:
                         _stop_requested = True
                     try:
-                        db.reference('command').set(None)
+                        db.reference('command').delete()
                     except Exception:
                         pass
                 else:
@@ -234,7 +235,7 @@ def poll_firebase_command():
         _firebase_command = None
     if cmd and _firebase_db:
         try:
-            _firebase_db.reference('command').set(None)
+            _firebase_db.reference('command').delete()
         except Exception:
             pass
     return cmd
@@ -444,6 +445,11 @@ def open_door():
             _stop_requested = False
             print("Door open interrupted")
             return False
+    overshoot_end = time.monotonic() + ACTUATOR_OVERSHOOT_SECS
+    while time.monotonic() < overshoot_end:
+        time.sleep(0.05)
+        if _stop_requested:
+            break
     stop()
     actuator_pos = 0.0
     set_state(OPEN)
@@ -477,6 +483,11 @@ def close_door():
             print("Door close interrupted")
             return False
         # --- RFID reverse-on-tag logic (reserved for UHF RFID upgrade) ---
+    overshoot_end = time.monotonic() + ACTUATOR_OVERSHOOT_SECS
+    while time.monotonic() < overshoot_end:
+        time.sleep(0.05)
+        if _stop_requested:
+            break
     stop()
     actuator_pos = 1.0
     closing = False
@@ -513,6 +524,11 @@ def open_door_manual():
                 set_state(PARTIALLY_OPEN)
                 closing = False
             return False
+    overshoot_end = time.monotonic() + ACTUATOR_OVERSHOOT_SECS
+    while time.monotonic() < overshoot_end:
+        time.sleep(0.05)
+        if not GPIO.input(SW_OPEN):
+            break
     stop()
     actuator_pos = 0.0
     set_state(OPEN)
@@ -549,6 +565,11 @@ def close_door_manual():
                 set_state(PARTIALLY_CLOSED)
                 closing = False
             return False
+    overshoot_end = time.monotonic() + ACTUATOR_OVERSHOOT_SECS
+    while time.monotonic() < overshoot_end:
+        time.sleep(0.05)
+        if not GPIO.input(SW_CLOSE):
+            break
     stop()
     actuator_pos = 1.0
     set_state(CLOSED)
@@ -632,7 +653,7 @@ def main():
                             write_beep_request('close')
                     if _firebase_db:
                         try:
-                            _firebase_db.reference('test/switch').set(None)
+                            _firebase_db.reference('test/switch').delete()
                         except Exception:
                             pass
 
