@@ -4,5 +4,4 @@ module.exports = {
   bundleIdentifier: "com.pnichols.tailgaterg.watch",
   frameworks: ["SwiftUI"],
   icon: "../../assets/icon.png",
-  name: "Tail Gate RG",
 };
