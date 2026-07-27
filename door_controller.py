@@ -59,6 +59,7 @@ _firebase_command = None
 _stop_requested  = False
 _actuator_open_secs  = ACTUATOR_OPEN_SECS
 _actuator_close_secs = ACTUATOR_CLOSE_SECS
+_notifications = {'door': False, 'offline': False, 'service_down': False}
 _firebase_db     = None
 _firebase_connected = False
 _startup_time    = time.monotonic()
@@ -243,8 +244,15 @@ def init_firebase():
         db.reference('test/switch').listen(on_test_switch)
         db.reference('settings/night_mode_override').listen(on_night_mode)
         db.reference('settings/night_off_override').listen(on_night_off_override)
+        def on_notifications(event):
+            with _firebase_lock:
+                data = event.data if isinstance(event.data, dict) else {}
+                for key in ('door', 'offline', 'service_down'):
+                    _notifications[key] = bool(data.get(key, False))
+
         db.reference('settings/actuator_open_secs').listen(on_actuator_open_secs)
         db.reference('settings/actuator_close_secs').listen(on_actuator_close_secs)
+        db.reference('settings/notifications').listen(on_notifications)
         _firebase_connected = True
         print("Firebase connected")
     except Exception as e:
@@ -629,6 +637,7 @@ def main():
     prev_sw_close   = False
     last_status     = 0
     last_stuck_beep = 0
+    last_heartbeat  = 0
     partial_since   = time.monotonic() if door_state in (PARTIALLY_OPEN, PARTIALLY_CLOSED) else None
 
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
@@ -664,12 +673,16 @@ def main():
                     print("Manual switch — opening door")
                     if open_door_manual():
                         write_beep_request('open')
-                        send_push_notification("Tail Gate RG", "Door opened manually.")
+                        with _firebase_lock:
+                            if _notifications['door']:
+                                send_push_notification("Tail Gate RG", "Door opened manually.")
                 elif sw_close and not prev_sw_close and door_state != CLOSED and not closing:
                     print("Manual switch — closing door")
                     if close_door_manual():
                         write_beep_request('close')
-                        send_push_notification("Tail Gate RG", "Door closed manually.")
+                        with _firebase_lock:
+                            if _notifications['door']:
+                                send_push_notification("Tail Gate RG", "Door closed manually.")
 
             prev_sw_open  = sw_open
             prev_sw_close = sw_close
@@ -698,12 +711,16 @@ def main():
                     print("App command — opening door")
                     if open_door():
                         write_beep_request('open')
-                        send_push_notification("Tail Gate RG", "Door opened via app.")
+                        with _firebase_lock:
+                            if _notifications['door']:
+                                send_push_notification("Tail Gate RG", "Door opened via app.")
                 elif cmd == 'close' and door_state != CLOSED:
                     print("App command — closing door")
                     if close_door():
                         write_beep_request('close')
-                        send_push_notification("Tail Gate RG", "Door closed via app.")
+                        with _firebase_lock:
+                            if _notifications['door']:
+                                send_push_notification("Tail Gate RG", "Door closed via app.")
 
                 # --- RFID open/close triggers (reserved for UHF RFID upgrade) ---
 
@@ -720,6 +737,15 @@ def main():
                 update_leds(False, stuck_alert)
 
                 now = time.monotonic()
+                if now - last_heartbeat >= 60:
+                    if _firebase_db:
+                        try:
+                            _firebase_db.reference('status/door_last_seen').set(
+                                datetime.now(tz=TIMEZONE).isoformat()
+                            )
+                        except Exception:
+                            pass
+                    last_heartbeat = now
                 if now - last_status >= STATUS_INTERVAL:
                     sw_str   = 'open' if sw_open else ('close' if sw_close else 'neutral')
                     open_pct = round((1.0 - actuator_pos) * 100)

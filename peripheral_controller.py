@@ -2,9 +2,11 @@ import RPi.GPIO as GPIO
 import math
 import time
 import os
+import socket
 import subprocess
 import threading
 import signal
+from datetime import datetime, timezone
 
 BTN_RESTART      = 24
 BTN_REBOOT       = 25
@@ -15,8 +17,9 @@ FIREBASE_URL     = 'https://dog-door-632e6-default-rtdb.firebaseio.com/'
 STATE_FILE       = '/home/pat0222/dog-door/.door_state'
 BEEP_FILE        = '/home/pat0222/dog-door/.beep_request'
 
-_firebase_lock   = threading.Lock()
-_owner_available = [True, True]
+_firebase_lock        = threading.Lock()
+_owner_available      = [True, True]
+_peripheral_firebase_db = None
 _oled_stop       = False
 _oled_device     = None
 _oled_font_large = None
@@ -33,13 +36,14 @@ BEEP_REBOOT   = [(0.2, 0.1)] * 3
 BEEP_SHUTDOWN = [(0.4, 0)]
 
 
-def get_wifi_dbm():
+def get_local_ip():
     try:
-        with open('/proc/net/wireless') as f:
-            for line in f:
-                if 'wlan0' in line:
-                    parts = line.split()
-                    return int(float(parts[3].rstrip('.')))
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(('8.8.8.8', 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
     except Exception:
         return None
 
@@ -390,12 +394,12 @@ def oled_loop():
             time.sleep(0.05)
             continue
         try:
-            wifi = get_wifi_dbm()
-            if wifi is None:
+            ip = get_local_ip()
+            if ip is None:
                 blink = int(time.monotonic() * 2) % 2 == 0
                 with canvas(device) as draw:
                     if blink:
-                        draw.text((10, 20), "NO WIFI", font=_oled_font_large, fill="white")
+                        draw.text((10, 20), "NO NETWORK", font=_oled_font_large, fill="white")
                 time.sleep(0.25)
                 continue
             state, pct = read_door_state()
@@ -413,24 +417,26 @@ def oled_loop():
                 owner_str = "Owners: away"
 
             state_label = state.replace('_', ' ').upper()
-            wifi_str = f"WiFi: {wifi} dBm"
+            ip_str = f"IP: {ip}"
 
             with canvas(device) as draw:
                 draw.text((0,  0), state_label, fill="white")
                 draw.text((0, 16), f"Open: {pct}%", fill="white")
                 draw.text((0, 32), owner_str,        fill="white")
-                draw.text((0, 48), wifi_str,          fill="white")
+                draw.text((0, 48), ip_str,            fill="white")
         except Exception:
             pass
         time.sleep(1)
 
 
 def init_firebase():
+    global _peripheral_firebase_db
     try:
         import firebase_admin
         from firebase_admin import credentials, db
         cred = credentials.Certificate(FIREBASE_KEY)
         firebase_admin.initialize_app(cred, {'databaseURL': FIREBASE_URL})
+        _peripheral_firebase_db = db
 
         def make_owner_listener(idx):
             def on_owner(event):
@@ -466,6 +472,7 @@ def main():
     restart_press_start = None
     reboot_press_start  = None
     both_hold_start     = None
+    last_heartbeat      = 0
 
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
 
@@ -523,6 +530,17 @@ def main():
                             reboot_press_start = None
                 else:
                     reboot_press_start = None
+
+            now_mono = time.monotonic()
+            if now_mono - last_heartbeat >= 60:
+                if _peripheral_firebase_db:
+                    try:
+                        _peripheral_firebase_db.reference('status/peripheral_last_seen').set(
+                            datetime.now(tz=timezone.utc).isoformat()
+                        )
+                    except Exception:
+                        pass
+                last_heartbeat = now_mono
 
             time.sleep(0.2)
 

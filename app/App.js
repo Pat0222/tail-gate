@@ -102,6 +102,9 @@ export default function App() {
   const [nightOffOverride, setNightOffOverride] = useState(false);
   const [actuatorOpenSecs, setActuatorOpenSecs]   = useState(null);
   const [actuatorCloseSecs, setActuatorCloseSecs] = useState(null);
+  const [notifyDoor, setNotifyDoor]               = useState(false);
+  const [notifyOffline, setNotifyOffline]         = useState(false);
+  const [notifyServiceDown, setNotifyServiceDown] = useState(false);
 
   useEffect(() => {
     const unsubDoor = onValue(ref(db, 'door'), snapshot => {
@@ -138,6 +141,13 @@ export default function App() {
       setActuatorCloseSecs(snapshot.val());
     });
 
+    const unsubNotifications = onValue(ref(db, 'settings/notifications'), snapshot => {
+      const data = snapshot.val() || {};
+      setNotifyDoor(data.door === true);
+      setNotifyOffline(data.offline === true);
+      setNotifyServiceDown(data.service_down === true);
+    });
+
     registerForPushNotifications().then(token => {
       if (token) {
         const key = token.replace(/[[\]]/g, '');
@@ -145,7 +155,7 @@ export default function App() {
       }
     });
 
-    return () => { unsubDoor(); unsubOwners(); unsubNightMode(); unsubNightOff(); unsubActuatorOpen(); unsubActuatorClose(); };
+    return () => { unsubDoor(); unsubOwners(); unsubNightMode(); unsubNightOff(); unsubActuatorOpen(); unsubActuatorClose(); unsubNotifications(); };
   }, []);
 
   useEffect(() => {
@@ -201,6 +211,10 @@ export default function App() {
   const toggleNightOffOverride = (value) => {
     setNightOffOverride(value);
     set(ref(db, 'settings/night_off_override'), value || null);
+  };
+
+  const setNotification = (key, value) => {
+    set(ref(db, `settings/notifications/${key}`), value || null);
   };
 
   const adjustActuator = (which, delta) => {
@@ -304,6 +318,49 @@ export default function App() {
                 <Ionicons name="add-circle-outline" size={28} color="#007AFF" />
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+
+        <Text style={styles.sectionHeader}>Notifications</Text>
+        <View style={[styles.card, { backgroundColor: C.card }]}>
+          <View style={styles.ownerRow}>
+            <View style={styles.settingsRowLeft}>
+              <View style={[styles.settingsIconBg, { backgroundColor: '#34C759' }]}>
+                <Ionicons name="notifications-outline" size={16} color="#fff" />
+              </View>
+              <Text style={[styles.settingsRowText, { color: C.text }]}>Door Events</Text>
+            </View>
+            <Switch
+              value={notifyDoor}
+              onValueChange={v => { setNotifyDoor(v); setNotification('door', v); }}
+              trackColor={{ false: C.switchOff, true: '#34C759' }}
+            />
+          </View>
+          <View style={[styles.ownerRow, styles.ownerRowDivider, { borderTopColor: C.divider }]}>
+            <View style={styles.settingsRowLeft}>
+              <View style={[styles.settingsIconBg, { backgroundColor: '#FF9500' }]}>
+                <Ionicons name="wifi-outline" size={16} color="#fff" />
+              </View>
+              <Text style={[styles.settingsRowText, { color: C.text }]}>Pi Offline</Text>
+            </View>
+            <Switch
+              value={notifyOffline}
+              onValueChange={v => { setNotifyOffline(v); setNotification('offline', v); }}
+              trackColor={{ false: C.switchOff, true: '#FF9500' }}
+            />
+          </View>
+          <View style={[styles.ownerRow, styles.ownerRowDivider, { borderTopColor: C.divider }]}>
+            <View style={styles.settingsRowLeft}>
+              <View style={[styles.settingsIconBg, { backgroundColor: '#FF3B30' }]}>
+                <Ionicons name="warning-outline" size={16} color="#fff" />
+              </View>
+              <Text style={[styles.settingsRowText, { color: C.text }]}>Service Down</Text>
+            </View>
+            <Switch
+              value={notifyServiceDown}
+              onValueChange={v => { setNotifyServiceDown(v); setNotification('service_down', v); }}
+              trackColor={{ false: C.switchOff, true: '#FF3B30' }}
+            />
           </View>
         </View>
 
