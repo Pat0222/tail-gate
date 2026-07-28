@@ -100,6 +100,7 @@ export default function App() {
   const [testSwitchState, setTestSwitchState] = useState({ open: false, close: false });
   const [nightMode, setNightModeState]      = useState('auto');
   const [nightOffOverride, setNightOffOverride] = useState(false);
+  const [lightsOff, setLightsOff]           = useState(false);
   const [actuatorOpenSecs, setActuatorOpenSecs]   = useState(null);
   const [actuatorCloseSecs, setActuatorCloseSecs] = useState(null);
   const [notifyDoor, setNotifyDoor]               = useState(false);
@@ -131,6 +132,10 @@ export default function App() {
       setNightOffOverride(snapshot.val() === true);
     });
 
+    const unsubLightsOff = onValue(ref(db, 'settings/lights_off_override'), snapshot => {
+      setLightsOff(snapshot.val() === true);
+    });
+
     const unsubActuatorOpen = onValue(ref(db, 'settings/actuator_open_secs'), snapshot => {
       setActuatorOpenSecs(snapshot.val());
     });
@@ -151,7 +156,7 @@ export default function App() {
       }
     });
 
-    return () => { unsubDoor(); unsubOwners(); unsubNightMode(); unsubNightOff(); unsubActuatorOpen(); unsubActuatorClose(); unsubNotifications(); };
+    return () => { unsubDoor(); unsubOwners(); unsubNightMode(); unsubNightOff(); unsubLightsOff(); unsubActuatorOpen(); unsubActuatorClose(); unsubNotifications(); };
   }, []);
 
   useEffect(() => {
@@ -207,6 +212,11 @@ export default function App() {
   const toggleNightOffOverride = (value) => {
     setNightOffOverride(value);
     set(ref(db, 'settings/night_off_override'), value || null);
+  };
+
+  const toggleLightsOff = (value) => {
+    setLightsOff(value);
+    set(ref(db, 'settings/lights_off_override'), value || null);
   };
 
   const setNotification = (key, value) => {
@@ -285,6 +295,22 @@ export default function App() {
               value={nightOffOverride}
               onValueChange={toggleNightOffOverride}
               trackColor={{ false: C.switchOff, true: '#FF3B30' }}
+            />
+          </View>
+          <View style={[styles.ownerRow, styles.ownerRowDivider, { borderTopColor: C.divider }]}>
+            <View style={styles.settingsRowLeft}>
+              <View style={[styles.settingsIconBg, { backgroundColor: '#8E8E93' }]}>
+                <Ionicons name="moon" size={16} color="#fff" />
+              </View>
+              <View>
+                <Text style={[styles.settingsRowText, { color: C.text }]}>Lights Off</Text>
+                <Text style={[styles.sectionDesc, { marginTop: 0 }]}>Turn off now until next sunrise/sunset</Text>
+              </View>
+            </View>
+            <Switch
+              value={lightsOff}
+              onValueChange={toggleLightsOff}
+              trackColor={{ false: C.switchOff, true: '#8E8E93' }}
             />
           </View>
         </View>

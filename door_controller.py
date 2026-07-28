@@ -74,6 +74,8 @@ LOCATION = LocationInfo("South Riding", "USA", "America/New_York", 38.9318, -77.
 
 _night_mode_override = None   # None=auto, True=force dim, False=force bright
 _night_off_override  = False  # True=bypass the 10PM–7AM off window
+_lights_manual_off   = False  # True=force LEDs off until the next sunrise/sunset
+_lights_off_resume_at = None  # datetime the manual-off override auto-clears
 _led_pwm = {}
 _sun_cache = {'date': None, 'sunrise': None, 'sunset': None}
 
@@ -97,12 +99,27 @@ def _get_sun_times():
     return _sun_cache['sunrise'], _sun_cache['sunset']
 
 
+def _next_sun_transition(now):
+    sunrise, sunset = _get_sun_times()
+    if now < sunrise:
+        return sunrise
+    if now < sunset:
+        return sunset
+    tomorrow = astral_sun(LOCATION.observer, date=now.date() + timedelta(days=1), tzinfo=TIMEZONE)
+    return tomorrow['sunrise']
+
+
 def get_led_duty_cycle():
     with _firebase_lock:
-        night_off_bypass    = _night_off_override
-        brightness_override = _night_mode_override
+        manual_off           = _lights_manual_off
+        night_off_bypass     = _night_off_override
+        brightness_override  = _night_mode_override
 
     now = datetime.now(tz=TIMEZONE)
+
+    # Manual "lights off" override from app — takes priority over everything
+    if manual_off:
+        return 0
 
     # 10 PM – 7 AM: LEDs off unless bypassed
     if (now.hour >= NIGHT_OFF_START or now.hour < NIGHT_OFF_END) and not night_off_bypass:
@@ -212,6 +229,16 @@ def init_firebase():
             with _firebase_lock:
                 _night_off_override = bool(event.data) if event.data is not None else False
 
+        def on_lights_off_override(event):
+            global _lights_manual_off, _lights_off_resume_at
+            with _firebase_lock:
+                prev = _lights_manual_off
+                _lights_manual_off = bool(event.data) if event.data is not None else False
+                if _lights_manual_off and not prev:
+                    _lights_off_resume_at = _next_sun_transition(datetime.now(tz=TIMEZONE))
+                elif not _lights_manual_off:
+                    _lights_off_resume_at = None
+
         def on_actuator_open_secs(event):
             global _actuator_open_secs
             if event.data is not None:
@@ -244,6 +271,7 @@ def init_firebase():
         db.reference('test/switch').listen(on_test_switch)
         db.reference('settings/night_mode_override').listen(on_night_mode)
         db.reference('settings/night_off_override').listen(on_night_off_override)
+        db.reference('settings/lights_off_override').listen(on_lights_off_override)
         def on_notifications(event):
             with _firebase_lock:
                 data = event.data if isinstance(event.data, dict) else {}
@@ -625,7 +653,7 @@ def close_door_manual():
 
 
 def main():
-    global closing, _test_switch_cmd
+    global closing, _test_switch_cmd, _lights_manual_off, _lights_off_resume_at
 
     setup_gpio()
     init_firebase()
@@ -732,6 +760,20 @@ def main():
                 if stuck_alert and time.monotonic() - last_stuck_beep >= 30:
                     write_beep_request('stuck')
                     last_stuck_beep = time.monotonic()
+
+                with _firebase_lock:
+                    manual_off = _lights_manual_off
+                    resume_at  = _lights_off_resume_at
+                if manual_off and resume_at and datetime.now(tz=TIMEZONE) >= resume_at:
+                    with _firebase_lock:
+                        _lights_manual_off    = False
+                        _lights_off_resume_at = None
+                    if _firebase_db:
+                        try:
+                            _firebase_db.reference('settings/lights_off_override').set(None)
+                        except Exception:
+                            pass
+
                 update_leds(False, stuck_alert)
 
                 now = time.monotonic()
