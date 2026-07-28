@@ -59,7 +59,7 @@ _firebase_command = None
 _stop_requested  = False
 _actuator_open_secs  = ACTUATOR_OPEN_SECS
 _actuator_close_secs = ACTUATOR_CLOSE_SECS
-_notifications = {'door': False, 'offline': False, 'service_down': False}
+_notifications = {'door': False}
 _firebase_db     = None
 _firebase_connected = False
 _startup_time    = time.monotonic()
@@ -247,8 +247,7 @@ def init_firebase():
         def on_notifications(event):
             with _firebase_lock:
                 data = event.data if isinstance(event.data, dict) else {}
-                for key in ('door', 'offline', 'service_down'):
-                    _notifications[key] = bool(data.get(key, False))
+                _notifications['door'] = bool(data.get('door', False))
 
         db.reference('settings/actuator_open_secs').listen(on_actuator_open_secs)
         db.reference('settings/actuator_close_secs').listen(on_actuator_close_secs)
@@ -637,7 +636,6 @@ def main():
     prev_sw_close   = False
     last_status     = 0
     last_stuck_beep = 0
-    last_heartbeat  = 0
     partial_since   = time.monotonic() if door_state in (PARTIALLY_OPEN, PARTIALLY_CLOSED) else None
 
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
@@ -737,15 +735,6 @@ def main():
                 update_leds(False, stuck_alert)
 
                 now = time.monotonic()
-                if now - last_heartbeat >= 60:
-                    if _firebase_db:
-                        try:
-                            _firebase_db.reference('status/door_last_seen').set(
-                                datetime.now(tz=TIMEZONE).isoformat()
-                            )
-                        except Exception:
-                            pass
-                    last_heartbeat = now
                 if now - last_status >= STATUS_INTERVAL:
                     sw_str   = 'open' if sw_open else ('close' if sw_close else 'neutral')
                     open_pct = round((1.0 - actuator_pos) * 100)

@@ -6,7 +6,6 @@ import socket
 import subprocess
 import threading
 import signal
-from datetime import datetime, timezone
 
 BTN_RESTART      = 24
 BTN_REBOOT       = 25
@@ -17,9 +16,8 @@ FIREBASE_URL     = 'https://dog-door-632e6-default-rtdb.firebaseio.com/'
 STATE_FILE       = '/home/pat0222/dog-door/.door_state'
 BEEP_FILE        = '/home/pat0222/dog-door/.beep_request'
 
-_firebase_lock        = threading.Lock()
-_owner_available      = [True, True]
-_peripheral_firebase_db = None
+_firebase_lock   = threading.Lock()
+_owner_available = [True, True]
 _oled_stop       = False
 _oled_device     = None
 _oled_font_large = None
@@ -430,13 +428,11 @@ def oled_loop():
 
 
 def init_firebase():
-    global _peripheral_firebase_db
     try:
         import firebase_admin
         from firebase_admin import credentials, db
         cred = credentials.Certificate(FIREBASE_KEY)
         firebase_admin.initialize_app(cred, {'databaseURL': FIREBASE_URL})
-        _peripheral_firebase_db = db
 
         def make_owner_listener(idx):
             def on_owner(event):
@@ -472,7 +468,6 @@ def main():
     restart_press_start = None
     reboot_press_start  = None
     both_hold_start     = None
-    last_heartbeat      = 0
 
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
 
@@ -530,17 +525,6 @@ def main():
                             reboot_press_start = None
                 else:
                     reboot_press_start = None
-
-            now_mono = time.monotonic()
-            if now_mono - last_heartbeat >= 60:
-                if _peripheral_firebase_db:
-                    try:
-                        _peripheral_firebase_db.reference('status/peripheral_last_seen').set(
-                            datetime.now(tz=timezone.utc).isoformat()
-                        )
-                    except Exception:
-                        pass
-                last_heartbeat = now_mono
 
             time.sleep(0.2)
 

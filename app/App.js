@@ -103,8 +103,6 @@ export default function App() {
   const [actuatorOpenSecs, setActuatorOpenSecs]   = useState(null);
   const [actuatorCloseSecs, setActuatorCloseSecs] = useState(null);
   const [notifyDoor, setNotifyDoor]               = useState(false);
-  const [notifyOffline, setNotifyOffline]         = useState(false);
-  const [notifyServiceDown, setNotifyServiceDown] = useState(false);
 
   useEffect(() => {
     const unsubDoor = onValue(ref(db, 'door'), snapshot => {
@@ -144,8 +142,6 @@ export default function App() {
     const unsubNotifications = onValue(ref(db, 'settings/notifications'), snapshot => {
       const data = snapshot.val() || {};
       setNotifyDoor(data.door === true);
-      setNotifyOffline(data.offline === true);
-      setNotifyServiceDown(data.service_down === true);
     });
 
     registerForPushNotifications().then(token => {
@@ -334,32 +330,6 @@ export default function App() {
               value={notifyDoor}
               onValueChange={v => { setNotifyDoor(v); setNotification('door', v); }}
               trackColor={{ false: C.switchOff, true: '#34C759' }}
-            />
-          </View>
-          <View style={[styles.ownerRow, styles.ownerRowDivider, { borderTopColor: C.divider }]}>
-            <View style={styles.settingsRowLeft}>
-              <View style={[styles.settingsIconBg, { backgroundColor: '#FF9500' }]}>
-                <Ionicons name="wifi-outline" size={16} color="#fff" />
-              </View>
-              <Text style={[styles.settingsRowText, { color: C.text }]}>Pi Offline</Text>
-            </View>
-            <Switch
-              value={notifyOffline}
-              onValueChange={v => { setNotifyOffline(v); setNotification('offline', v); }}
-              trackColor={{ false: C.switchOff, true: '#FF9500' }}
-            />
-          </View>
-          <View style={[styles.ownerRow, styles.ownerRowDivider, { borderTopColor: C.divider }]}>
-            <View style={styles.settingsRowLeft}>
-              <View style={[styles.settingsIconBg, { backgroundColor: '#FF3B30' }]}>
-                <Ionicons name="warning-outline" size={16} color="#fff" />
-              </View>
-              <Text style={[styles.settingsRowText, { color: C.text }]}>Service Down</Text>
-            </View>
-            <Switch
-              value={notifyServiceDown}
-              onValueChange={v => { setNotifyServiceDown(v); setNotification('service_down', v); }}
-              trackColor={{ false: C.switchOff, true: '#FF3B30' }}
             />
           </View>
         </View>
