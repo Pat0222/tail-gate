@@ -6,15 +6,13 @@ A solar-powered dog door controlled by a Raspberry Pi Zero 2 W. Owners can contr
 
 ## Features
 
-- **Automatic open/close** — triggered when both dogs are detected on opposite sides of the fence
-- **Auto-close countdown** — door closes automatically after 10 seconds once the dogs are back
 - **Remote control** — iOS app and home screen widget with live door status
-- **Owner availability** — each owner can toggle their availability; door only opens automatically when both are available
-- **Push notifications** — alerts when the door opens, closes, or the dogs come home
+- **Owner availability** — each owner can toggle their availability; door only opens when both are available
+- **Push notifications** — alerts when the door opens or closes
 - **LED status panel** — 5 indicator lights show door state, motion, countdown, and owner availability
 - **Manual override** — physical 3-position toggle switch works regardless of owner availability
 - **Emergency stop** — app button halts door mid-movement
-- **OLED display** — live door state, open %, owner availability, WiFi signal strength
+- **OLED display** — live door state, open %, owner availability, current IP address to confirm network connectivity
 - **Buzzer** — audio feedback on open/close/stuck events
 - **Physical buttons** — restart service (1s hold), reboot Pi (3s hold), shutdown (both buttons 2s hold); all with OLED animations and countdown cancellation
 - **Solar powered** — 30W panel, MPPT charge controller, 12V 7Ah SLA battery
@@ -215,7 +213,7 @@ The 128×64 SSD1306 display shows live status updated every second:
 CLOSED
 Open: 0%
 Owners: both
-WiFi: -62 dBm
+IP: x.x.x.x
 ```
 
 I2C must be enabled on the Pi: `sudo raspi-config nonint do_i2c 0`
@@ -299,7 +297,7 @@ The iOS widget (iOS 17+) is built with WidgetKit/SwiftUI and lives in `app/targe
 
 ---
 
-## Door Logic
+## Future RFID Door Logic
 
 ```
 Both dogs detected on opposite sides
@@ -335,9 +333,6 @@ Both dogs detected on opposite sides
 
 ## Planned Improvements
 
-- [ ] Wire panel LEDs to J2 and complete enclosure installation
-- [ ] Apply Firebase security rules (ready, waiting for next TestFlight build)
 - [ ] Add neighbor as TestFlight tester
 - [ ] Apple Watch app
-- [ ] Add MAX98357A amplifier and speaker for audio alerts
 - [ ] Replace MFRC522 readers with UHF RFID (R200-based module + patch antennas) for reliable medium-dog detection at 0.5–2 meter range
